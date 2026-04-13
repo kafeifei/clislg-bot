@@ -36,7 +36,7 @@ export function routineDecision(state: GameState, army: Army | undefined, map: M
       .filter((t: RawRecommendedTarget) => t.prediction !== 'danger' && t.recommendation !== 'skip')
       .sort((a: RawRecommendedTarget, b: RawRecommendedTarget) => a.distance - b.distance);
     if (targets.length > 0 && army.totalTroops / army.totalTroopCap > 0.5) {
-      const shortage = (['wood', 'stone', 'iron', 'grain'] as const).sort((a, b) => (r[a] || 0) - (r[b] || 0))[0];
+      const shortage = (['wood', 'stone', 'iron', 'grain'] as ('wood'|'stone'|'iron'|'grain')[]).sort((a, b) => (r[a] || 0) - (r[b] || 0))[0];
       const sorted = [...targets].sort((a, b) =>
         ((a.resource_type === shortage ? -1000 : 0) + a.distance) - ((b.resource_type === shortage ? -1000 : 0) + b.distance)
       );
@@ -86,7 +86,7 @@ export function routineDecision(state: GameState, army: Army | undefined, map: M
 
   // resource/upgrade
   const upgradeCosts: Record<number, [number, number, number]> = { 1: [100, 100, 100], 2: [150, 150, 100], 3: [300, 300, 200], 4: [500, 500, 300] };
-  const shortageType = (['wood', 'stone', 'iron', 'grain'] as const).sort((a, b) => (r[a] || 0) - (r[b] || 0))[0];
+  const shortageType = (['wood', 'stone', 'iron', 'grain'] as ('wood'|'stone'|'iron'|'grain')[]).sort((a, b) => (r[a] || 0) - (r[b] || 0))[0];
   const upgradeable = state.ownedResourcePoints
     .filter(rp => {
       if (rp.level >= 5 || rp.zone === 'corridor') return false;
