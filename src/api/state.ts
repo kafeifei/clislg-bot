@@ -65,8 +65,8 @@ function normalizeState(raw: RawStateResponse): GameState {
     name: e.name,
     lordLevel: e.lord_level,
     territories: e.territories ?? (e as Record<string, unknown>).occupied_points as number ?? 0,
-    troops: e.troops ?? 0,
-    kills: e.total_kills ?? 0,
+    troops: e.troops ?? (e as Record<string, unknown>).totalTroops as number ?? 0,
+    kills: e.total_kills ?? (e as Record<string, unknown>).total_kills as number ?? 0,
     city: e.city ? {
       name: e.city.name,
       hexQ: e.city.hex_q,
@@ -92,7 +92,12 @@ function normalizeState(raw: RawStateResponse): GameState {
     },
     capacity: { wood: baseCap, stone: baseCap, iron: baseCap, grain: baseCap },
     production: { wood: 0, stone: 0, iron: 0, grain: 0 }, // 从资源点计算
-    stamina: ps.stamina,
+    stamina: (() => {
+      const armyStam = (raw.armies?.[0] as Record<string, unknown>)?.stamina;
+      if (typeof armyStam === 'number') return armyStam;
+      if (armyStam && typeof armyStam === 'object') return (armyStam as Record<string, number>).current ?? ps.stamina;
+      return ps.stamina;
+    })(),
     maxStamina: 200,
     reserveTroops: ps.reserve_troops,
     freeRecruits: ps.free_recruits,

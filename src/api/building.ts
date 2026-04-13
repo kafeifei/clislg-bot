@@ -13,7 +13,7 @@ export async function upgradeResource(client: ApiClient, slot: string): Promise<
   return client.post('/resource/upgrade', { slot });
 }
 
-export async function abandonResource(client: ApiClient, slot: string): Promise<unknown> {
-  log.info(`放弃资源点: ${slot}`);
-  return client.post('/resource/abandon', { slot });
+export async function abandonResource(client: ApiClient, resourcePointId: string): Promise<unknown> {
+  log.info(`放弃资源点: ${resourcePointId}`);
+  return client.post('/resource/abandon', { resourcePointId });
 }

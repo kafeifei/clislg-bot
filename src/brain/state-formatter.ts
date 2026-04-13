@@ -21,20 +21,36 @@ export function formatGameState(state: GameState, map?: MapData): string {
 预备兵: ${state.reserveTroops} | 体力: ${state.stamina}/${state.maxStamina}`);
 
   // 军队
+  const cityQ = state.raw?.playerState?.hex_q ?? 0;
+  const cityR = state.raw?.playerState?.hex_r ?? 0;
   for (const army of state.armies) {
     const troopPct = army.totalTroopCap > 0 ? Math.round(army.totalTroops / army.totalTroopCap * 100) : 0;
+    // 判断军队是否在城内
+    const armyQ = army.raw?.hex_q as number | undefined;
+    const armyR = army.raw?.hex_r as number | undefined;
+    const inCity = army.status === 'idle' && armyQ === cityQ && armyR === cityR;
+    let statusNote = translateStatus(army.status);
+    if (army.status === 'idle' && !inCity) statusNote += '(不在城内,无法补兵)';
+    if (inCity) statusNote += '(在城内,可补兵/行军)';
+
     let marchInfo = '';
     if (army.march) {
       marchInfo = ` | 行军目标: (${army.march.targetQ},${army.march.targetR},${army.march.targetS})`;
-      if (army.march.arrivalAt) marchInfo += ` 预计到达: ${army.march.arrivalAt}`;
     }
     const generals = army.generals.map(g =>
-      `${g.name}(${g.quality} 武${g.might}/智${g.intellect}/体${g.staminaAttr} ${g.troopType} 兵${g.troops}/${g.troopCap})`
+      `${g.name}(${g.troopType} 兵${g.troops}/${g.troopCap})`
     ).join(', ');
-    sections.push(`【军队 ${army.id.slice(-6)}】
-状态: ${translateStatus(army.status)} | 阵型: ${army.formation || '未设置'}
-兵力: ${army.totalTroops}/${army.totalTroopCap} (${troopPct}%)
+    sections.push(`【军队】
+状态: ${statusNote} | 兵力: ${army.totalTroops}/${army.totalTroopCap} (${troopPct}%)
 将领: ${generals || '无'}${marchInfo}`);
+  }
+
+  // 内城资源地（可 develop 升级涨繁荣度！）
+  if (state.innerResourcePoints.length > 0) {
+    const innerList = state.innerResourcePoints.map(rp =>
+      `  ${translateResource(rp.resource_type)}Lv${rp.level} id:${rp.id} [可develop升级!]`
+    ).join('\n');
+    sections.push(`【内城资源地】(develop这些地涨繁荣度!)\n${innerList}`);
   }
 
   // 建筑

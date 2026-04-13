@@ -42,7 +42,12 @@ export class ApiClient {
   }
 
   isAuthenticated(): boolean {
-    return this.token !== null;
+    return !!this.token;
+  }
+
+  clearAuth() {
+    this.token = null;
+    this.playerId = null;
   }
 
   async request<T = unknown>(method: string, path: string, body?: unknown, retries = 3): Promise<T> {

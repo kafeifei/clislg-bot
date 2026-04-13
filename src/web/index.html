@@ -37,7 +37,7 @@ body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Casca
 #main { display: flex; flex: 1; height: calc(100vh - 48px); }
 
 /* 左侧地图 */
-#map-panel { flex: 1; position: relative; overflow: hidden; background: var(--bg); }
+#map-panel { flex: 1; position: relative; overflow: hidden; background: var(--bg); user-select: none; -webkit-user-select: none; }
 #map-svg { width: 100%; height: 100%; }
 #map-tooltip { position: absolute; display: none; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 12px; pointer-events: none; z-index: 10; max-width: 260px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
 #map-controls { position: absolute; top: 12px; right: 12px; display: flex; gap: 4px; z-index: 10; }
@@ -74,6 +74,10 @@ body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Casca
 .action-wait { background: var(--border); color: var(--text2); }
 .action-default { background: var(--orange); color: white; }
 .decision-reasoning { font-size: 12px; color: var(--text2); line-height: 1.4; }
+.decision-thinking { font-size: 11px; color: #667; line-height: 1.4; margin-top: 6px; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 2px solid #445; max-height: 120px; overflow-y: auto; white-space: pre-wrap; display: none; }
+.decision-thinking.show { display: block; }
+.thinking-toggle { font-size: 10px; color: #556; cursor: pointer; margin-top: 4px; }
+.thinking-toggle:hover { color: var(--blue); }
 
 /* 指令标签 */
 #directives { padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--bg3); display: none; flex-shrink: 0; }
@@ -212,7 +216,9 @@ function handleMessage(msg) {
 // ========== 顶栏 ==========
 function renderTopBar() {
   if (!state) return;
-  document.getElementById('lord-info').textContent = `${state.lordName || '领主'} Lv${state.lordLevel}`;
+  const me = state.leaderboard?.find(e => e.playerId === myPlayerId);
+  const username = me?.name || state.lordName || '领主';
+  document.getElementById('lord-info').textContent = `${username} · ${state.cityName || ''} Lv${state.lordLevel}`;
   document.getElementById('round-info').textContent = `第 ${round} 轮`;
 
   const r = state.resources, c = state.capacity;
@@ -254,7 +260,7 @@ function renderLeaderboard() {
     return `<div class="lb-row ${isMe ? 'is-me' : ''}" onclick="focusPlayer('${e.playerId}')">
       <span class="lb-rank">${i + 1}.</span>
       <span class="lb-name">${isMe ? '★ ' : ''}${e.name}</span>
-      <span class="lb-detail">Lv${e.lordLevel} 领地${e.territories} 兵${e.troops}</span>
+      <span class="lb-detail">Lv${e.lordLevel} 领地${e.territories}</span>
     </div>`;
   }).join('');
 }
@@ -543,6 +549,7 @@ function addDecisionCard(entry) {
     <span class="decision-action ${actionClass}">${actionNames[d.action] || d.action}</span>
     ${d.params ? `<span style="color:var(--text2);font-size:11px;margin-left:6px">${JSON.stringify(d.params)}</span>` : ''}
     <div class="decision-reasoning">${d.reasoning}</div>
+    ${entry.observation ? `<div class="thinking-toggle" onclick="this.nextElementSibling.classList.toggle('show')">💭 军师观察 ▸</div><div class="decision-thinking show">${entry.observation}</div>` : ''}
   `;
   list.prepend(card);
   // 最多保留 50 条

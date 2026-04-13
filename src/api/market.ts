@@ -8,7 +8,7 @@ export async function convertResource(client: ApiClient, from: string, to: strin
   return client.post('/market/convert', { from, to, amount });
 }
 
-export async function purchaseItem(client: ApiClient, itemType: string, amount?: number): Promise<unknown> {
-  log.info(`市场购买: ${itemType}${amount ? ` x${amount}` : ''}`);
-  return client.post('/market/purchase', { itemType, ...(amount !== undefined && { amount }) });
+export async function purchaseItem(client: ApiClient, item: string, amount?: number): Promise<unknown> {
+  log.info(`市场购买: ${item}${amount ? ` x${amount}` : ''}`);
+  return client.post('/market/purchase', { item, ...(amount !== undefined && { amount }) });
 }
