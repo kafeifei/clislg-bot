@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLISLG 助手</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0a0e17; --bg2: #111827; --bg3: #1a2332;
+  --border: #2a3a4a; --text: #e0e8f0; --text2: #8899aa;
+  --gold: #f0c040; --red: #e84040; --green: #40c860;
+  --blue: #4090e8; --orange: #e88840;
+  --wood: #6b8e23; --stone: #888c8d; --iron: #8b6914; --grain: #daa520;
+}
+body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; height: 100vh; overflow: hidden; }
+
+/* ===== 设置向导 & 登录 ===== */
+.overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.overlay.hidden { display: none; }
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 32px; width: 420px; max-width: 90vw; }
+.card h1 { color: var(--gold); font-size: 20px; margin-bottom: 4px; }
+.card h2 { color: var(--text2); font-size: 13px; font-weight: normal; margin-bottom: 24px; }
+.card label { display: block; color: var(--text2); font-size: 12px; margin-bottom: 4px; margin-top: 16px; }
+.card input, .card select { width: 100%; background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 13px; outline: none; }
+.card input:focus, .card select:focus { border-color: var(--blue); }
+.card .btn { display: inline-block; padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-family: inherit; font-size: 13px; margin-top: 20px; }
+.card .btn-primary { background: var(--blue); color: white; }
+.card .btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); margin-left: 8px; }
+.card .btn:hover { opacity: 0.85; }
+.card .error { color: var(--red); font-size: 12px; margin-top: 8px; display: none; }
+.card .options { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.card .option { flex: 1; min-width: 100px; padding: 12px; background: var(--bg3); border: 2px solid var(--border); border-radius: 8px; cursor: pointer; text-align: center; transition: border-color 0.2s; }
+.card .option:hover { border-color: var(--blue); }
+.card .option.selected { border-color: var(--gold); background: rgba(240,192,64,0.08); }
+.card .option .name { font-weight: bold; margin-bottom: 2px; }
+.card .option .desc { font-size: 11px; color: var(--text2); }
+.card .step-indicator { display: flex; gap: 8px; margin-bottom: 20px; }
+.card .step { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+.card .step.active { background: var(--gold); }
+#api-key-section { display: none; }
+
+/* ===== 顶栏 ===== */
+#top-bar { display: flex; align-items: center; gap: 16px; padding: 8px 16px; background: var(--bg2); border-bottom: 1px solid var(--border); height: 48px; flex-shrink: 0; }
+.lord-info { font-weight: bold; color: var(--gold); font-size: 15px; }
+.resource-bar { display: flex; gap: 12px; flex-wrap: wrap; }
+.res-item { display: flex; align-items: center; gap: 4px; }
+.res-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.res-wood .res-dot { background: var(--wood); }
+.res-stone .res-dot { background: var(--stone); }
+.res-iron .res-dot { background: var(--iron); }
+.res-grain .res-dot { background: var(--grain); }
+.res-copper .res-dot { background: var(--orange); }
+.army-info { display: flex; gap: 8px; align-items: center; }
+.bar-bg { width: 80px; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.bar-troop { background: var(--green); }
+.bar-stamina { background: var(--blue); }
+.round-info { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.bot-status { padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+.bot-status.running { background: rgba(64,200,96,0.2); color: var(--green); }
+.bot-status.stopped { background: rgba(232,64,64,0.2); color: var(--red); }
+.bot-btn { background: none; border: 1px solid var(--border); color: var(--text2); padding: 3px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 11px; }
+.bot-btn:hover { border-color: var(--text); color: var(--text); }
+
+/* ===== 主体 ===== */
+#main { display: flex; flex: 1; height: calc(100vh - 48px); }
+#app-container { display: flex; flex-direction: column; width: 100%; height: 100%; }
+
+/* ===== 地图 ===== */
+#map-panel { flex: 1; position: relative; overflow: hidden; background: var(--bg); user-select: none; -webkit-user-select: none; }
+#map-svg { width: 100%; height: 100%; }
+#map-tooltip { position: absolute; display: none; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 12px; pointer-events: none; z-index: 10; max-width: 260px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+#map-controls { position: absolute; top: 12px; right: 12px; display: flex; gap: 4px; z-index: 10; }
+#map-controls button { width: 32px; height: 32px; background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-size: 16px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+#map-controls button:hover { background: var(--border); }
+#map-legend { position: absolute; bottom: 12px; left: 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 11px; display: flex; gap: 10px; }
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.legend-color { width: 12px; height: 12px; border-radius: 2px; }
+
+/* ===== 右侧面板 ===== */
+#right-panel { width: 400px; display: flex; flex-direction: column; border-left: 1px solid var(--border); flex-shrink: 0; }
+#leaderboard { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 8px; max-height: 180px; overflow-y: auto; flex-shrink: 0; }
+#leaderboard h3 { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+.lb-row { display: flex; padding: 3px 4px; border-radius: 3px; cursor: pointer; font-size: 12px; }
+.lb-row:hover { background: var(--bg3); }
+.lb-row.is-me { color: var(--gold); font-weight: bold; }
+.lb-rank { width: 24px; color: var(--text2); }
+.lb-name { flex: 1; }
+.lb-detail { color: var(--text2); }
+#decisions { flex: 1; overflow-y: auto; padding: 8px; background: var(--bg); }
+#decisions h3 { font-size: 12px; color: var(--text2); margin-bottom: 6px; position: sticky; top: 0; background: var(--bg); padding-bottom: 4px; }
+.decision-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
+.decision-round { font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+.decision-analysis { color: var(--gold); margin-bottom: 6px; line-height: 1.5; }
+.decision-action { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; margin-bottom: 4px; }
+.action-march { background: var(--red); color: white; }
+.action-replenish { background: var(--green); color: white; }
+.action-build { background: var(--blue); color: white; }
+.action-gacha { background: var(--gold); color: black; }
+.action-wait { background: var(--border); color: var(--text2); }
+.action-default { background: var(--orange); color: white; }
+.decision-reasoning { font-size: 12px; color: var(--text2); line-height: 1.4; }
+.decision-observation { font-size: 11px; color: #667; line-height: 1.4; margin-top: 6px; padding: 6px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; border-left: 2px solid #445; }
+#chat-panel { border-top: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; max-height: 200px; display: flex; flex-direction: column; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 8px; min-height: 60px; }
+.chat-msg { margin-bottom: 6px; line-height: 1.4; }
+.chat-msg.user { color: var(--blue); }
+.chat-msg.bot { color: var(--gold); }
+.chat-msg .sender { font-weight: bold; }
+#chat-input-area { display: flex; padding: 8px; gap: 6px; border-top: 1px solid var(--border); }
+#chat-input { flex: 1; background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-family: inherit; font-size: 13px; outline: none; }
+#chat-input:focus { border-color: var(--blue); }
+#chat-send { background: var(--blue); color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 13px; }
+#bottom-bar { display: flex; gap: 12px; padding: 6px 16px; background: var(--bg2); border-top: 1px solid var(--border); font-size: 12px; color: var(--text2); flex-shrink: 0; overflow-x: auto; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ===== 第1步：设置向导 ===== -->
+<div id="setup-overlay" class="overlay">
+  <div class="card">
+    <div class="step-indicator"><div class="step active"></div><div class="step"></div></div>
+    <h1>CLISLG 助手</h1>
+    <h2>"知己知彼，百战不殆"</h2>
+
+    <p style="color:var(--text2);font-size:12px;margin-bottom:12px">选择 AI 军师引擎（可选，不影响自动游戏）</p>
+    <div class="options" id="ai-options">
+      <div class="option" data-provider="none" onclick="selectAI('none')">
+        <div class="name">不使用 AI</div>
+        <div class="desc">纯规则引擎</div>
+      </div>
+      <div class="option" data-provider="google" onclick="selectAI('google')">
+        <div class="name">Google Gemini</div>
+        <div class="desc">免费额度大</div>
+      </div>
+      <div class="option" data-provider="openai" onclick="selectAI('openai')">
+        <div class="name">OpenAI GPT</div>
+        <div class="desc">需要 API Key</div>
+      </div>
+      <div class="option" data-provider="anthropic" onclick="selectAI('anthropic')">
+        <div class="name">Anthropic Claude</div>
+        <div class="desc">需要 API Key</div>
+      </div>
+      <div class="option" data-provider="webllm" onclick="selectAI('webllm')">
+        <div class="name">浏览器本地</div>
+        <div class="desc">WebLLM (慢)</div>
+      </div>
+    </div>
+
+    <div id="api-key-section">
+      <label id="api-key-label">API Key</label>
+      <input id="api-key-input" type="password" placeholder="sk-..." />
+      <div style="font-size:11px;color:var(--text2);margin-top:4px">Key 仅存在你的浏览器本地，不会发送到任何第三方服务器</div>
+    </div>
+
+    <button class="btn btn-primary" onclick="nextToLogin()">下一步</button>
+    <button class="btn btn-secondary" onclick="skipSetup()">跳过，不用 AI</button>
+  </div>
+</div>
+
+<!-- ===== 第2步：登录/注册 ===== -->
+<div id="login-overlay" class="overlay hidden">
+  <div class="card">
+    <div class="step-indicator"><div class="step"></div><div class="step active"></div></div>
+    <h1>进入战场</h1>
+    <h2>登录已有账号或创建新势力</h2>
+
+    <label>势力名（用户名）</label>
+    <input id="login-user" placeholder="输入你的势力名" />
+
+    <label>密码</label>
+    <input id="login-pass" type="password" placeholder="输入密码" />
+
+    <div class="error" id="login-error"></div>
+
+    <button class="btn btn-primary" onclick="doLogin()">登录</button>
+    <button class="btn btn-secondary" onclick="doRegister()">注册新势力</button>
+  </div>
+</div>
+
+<!-- ===== 主界面 ===== -->
+<div id="app-container" class="hidden">
+  <div id="top-bar">
+    <span class="lord-info" id="lord-info">加载中...</span>
+    <div class="resource-bar" id="resource-bar"></div>
+    <div class="army-info" id="army-info"></div>
+    <div class="round-info">
+      <span id="round-info"></span>
+      <span class="bot-status stopped" id="bot-status">已停止</span>
+      <button class="bot-btn" id="bot-toggle" onclick="toggleBot()">启动</button>
+      <button class="bot-btn" onclick="doLogout()">登出</button>
+    </div>
+  </div>
+  <div id="main">
+    <div id="map-panel">
+      <svg id="map-svg"></svg>
+      <div id="map-tooltip"></div>
+      <div id="map-controls">
+        <button onclick="zoomIn()" title="放大">+</button>
+        <button onclick="zoomOut()" title="缩小">-</button>
+        <button onclick="resetMap()" title="重置">R</button>
+      </div>
+      <div id="map-legend">
+        <div class="legend-item"><div class="legend-color" style="background:var(--wood)"></div>木材</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--stone)"></div>石材</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--iron)"></div>铁矿</div>
+        <div class="legend-item"><div class="legend-color" style="background:var(--grain)"></div>粮食</div>
+        <div class="legend-item"><div class="legend-color" style="background:#e84040;border:2px solid #ff6060"></div>敌方</div>
+        <div class="legend-item"><div class="legend-color" style="background:#40c860;border:2px solid #60ff80"></div>我方</div>
+      </div>
+    </div>
+    <div id="right-panel">
+      <div id="leaderboard"><h3>排行榜</h3><div id="lb-list"></div></div>
+      <div id="decisions"><h3>军师战报</h3><div id="decision-list"></div></div>
+      <div id="chat-panel">
+        <div id="chat-messages"></div>
+        <div id="chat-input-area">
+          <input id="chat-input" placeholder="下达指令..." />
+          <button id="chat-send" onclick="sendChat()">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="bottom-bar">
+    <span id="buildings-info">加载中...</span>
+    <span style="margin-left:auto" id="territory-info"></span>
+  </div>
+</div>
+
+<script>
+// ========================================================================
+// CLISLG 助手 — 纯前端版
+// 所有游戏 API 直接从浏览器调用，凭证存 localStorage
+// ========================================================================
+
+const BASE_URL = 'https://clislg.filo.ai/api/v4';
+const LEADERBOARD_URL = 'https://clislg.filo.ai/api/leaderboard';
+
+// ===== 存储 =====
+const storage = {
+  get(k) { return localStorage.getItem('clislg_' + k); },
+  set(k, v) { localStorage.setItem('clislg_' + k, v); },
+  remove(k) { localStorage.removeItem('clislg_' + k); },
+  getJSON(k) { try { return JSON.parse(this.get(k)); } catch { return null; } },
+  setJSON(k, v) { this.set(k, JSON.stringify(v)); },
+};
+
+// ===== 设置向导 =====
+let selectedAI = storage.get('ai_provider') || null;
+
+function selectAI(provider) {
+  selectedAI = provider;
+  document.querySelectorAll('#ai-options .option').forEach(el => el.classList.toggle('selected', el.dataset.provider === provider));
+  const keySection = document.getElementById('api-key-section');
+  if (['openai', 'anthropic', 'google'].includes(provider)) {
+    keySection.style.display = 'block';
+    const labels = { openai: 'OpenAI API Key', anthropic: 'Anthropic API Key', google: 'Google AI API Key' };
+    const placeholders = { openai: 'sk-...', anthropic: 'sk-ant-...', google: 'AIza...' };
+    document.getElementById('api-key-label').textContent = labels[provider];
+    document.getElementById('api-key-input').placeholder = placeholders[provider];
+  } else {
+    keySection.style.display = 'none';
+  }
+}
+
+function nextToLogin() {
+  if (selectedAI && selectedAI !== 'none') {
+    storage.set('ai_provider', selectedAI);
+    const key = document.getElementById('api-key-input').value.trim();
+    if (key) storage.set('ai_key', key);
+  } else {
+    storage.set('ai_provider', 'none');
+  }
+  document.getElementById('setup-overlay').classList.add('hidden');
+  document.getElementById('login-overlay').classList.remove('hidden');
+}
+
+function skipSetup() {
+  storage.set('ai_provider', 'none');
+  document.getElementById('setup-overlay').classList.add('hidden');
+  document.getElementById('login-overlay').classList.remove('hidden');
+}
+
+// ===== API 客户端 =====
+let authToken = storage.get('token');
+let playerId = storage.get('playerId');
+
+async function api(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+  const resp = await fetch(BASE_URL + path, {
+    method, headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await resp.text();
+  let data; try { data = JSON.parse(text); } catch { data = text; }
+  if (!resp.ok) {
+    if (resp.status === 401) {
+      // 尝试重新登录
+      const user = storage.get('username'), pass = storage.get('password');
+      if (user && pass) {
+        const reauth = await fetch(BASE_URL + '/auth/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, password: pass }),
+        });
+        if (reauth.ok) {
+          const d = await reauth.json();
+          authToken = d.token; playerId = d.playerId;
+          storage.set('token', authToken); storage.set('playerId', playerId);
+          return api(method, path, body); // 重试
+        }
+      }
+    }
+    throw { status: resp.status, data };
+  }
+  return data;
+}
+
+// ===== 登录/注册 =====
+async function doLogin() {
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value.trim();
+  if (!user || !pass) return showLoginError('请输入用户名和密码');
+  try {
+    const d = await fetch(BASE_URL + '/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass }),
+    }).then(r => r.json());
+    if (d.token) {
+      saveAuth(user, pass, d.token, d.playerId);
+      enterGame();
+    } else {
+      showLoginError(d.error || d.message || '登录失败');
+    }
+  } catch (e) { showLoginError('网络错误'); }
+}
+
+async function doRegister() {
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value.trim();
+  if (!user || !pass) return showLoginError('请输入用户名和密码');
+  try {
+    const d = await fetch(BASE_URL + '/auth/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass }),
+    }).then(r => r.json());
+    if (d.token) {
+      saveAuth(user, pass, d.token, d.playerId);
+      // 加入赛季
+      authToken = d.token; playerId = d.playerId;
+      await api('POST', '/join-season').catch(() => {});
+      enterGame();
+    } else {
+      showLoginError(d.error || d.message || '注册失败');
+    }
+  } catch (e) { showLoginError('网络错误'); }
+}
+
+function saveAuth(user, pass, token, pid) {
+  storage.set('username', user); storage.set('password', pass);
+  storage.set('token', token); storage.set('playerId', pid);
+  authToken = token; playerId = pid;
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg; el.style.display = 'block';
+}
+
+function doLogout() {
+  stopBot();
+  storage.remove('token'); storage.remove('playerId');
+  authToken = null; playerId = null;
+  document.getElementById('app-container').classList.add('hidden');
+  document.getElementById('login-overlay').classList.remove('hidden');
+}
+
+function enterGame() {
+  document.getElementById('setup-overlay').classList.add('hidden');
+  document.getElementById('login-overlay').classList.add('hidden');
+  document.getElementById('app-container').classList.remove('hidden');
+  // 立刻拉一次状态
+  gameLoopTick();
+}
+
+// ===== 状态标准化 =====
+function normalizeState(raw) {
+  const ps = raw.playerState || {};
+  const city = (raw.cities || [])[0] || {};
+  const rawGenerals = raw.generals || [];
+  const generals = rawGenerals.map(g => ({
+    id: g.id, name: g.name, quality: g.quality, level: g.level,
+    might: g.might, intellect: g.intellect, staminaAttr: g.stamina_attr,
+    troopType: g.troop_type, troops: g.troops, troopCap: g.troop_cap,
+    isDead: g.is_dead, armyId: g.assigned_army_id || g.army_id,
+  }));
+  const armies = (raw.armies || []).map(a => {
+    const ag = generals.filter(g => g.armyId === a.id);
+    return {
+      id: a.id, status: a.status, formation: a.formation,
+      totalTroops: ag.reduce((s, g) => s + g.troops, 0),
+      totalTroopCap: ag.reduce((s, g) => s + g.troopCap, 0),
+      generals: ag,
+      march: a.march_target_q != null ? { targetQ: a.march_target_q, targetR: a.march_target_r, targetS: a.march_target_s, arrivalAt: a.march_arrival_at, intent: a.march_intent } : undefined,
+      raw: a,
+    };
+  });
+  const buildings = [];
+  if (city.warehouse_level != null) {
+    for (const [k, v] of Object.entries(city)) {
+      if (k.endsWith('_level') && typeof v === 'number' && v >= 0) {
+        const type = k.replace('_level', '').replace('_levels', '');
+        buildings.push({ type, level: v });
+      }
+    }
+  }
+  const armyStam = raw.armies?.[0]?.stamina;
+  const stamina = typeof armyStam === 'number' ? armyStam : (armyStam?.current ?? ps.stamina ?? 0);
+  const whLevel = city.warehouse_level || 1;
+  const baseCap = 5000 + (whLevel - 1) * 5000;
+  const lb = (raw.leaderboard || []).map(e => ({
+    playerId: e.player_id, name: e.name, lordLevel: e.lord_level,
+    territories: e.territories ?? e.occupied_points ?? 0,
+    troops: e.troops ?? e.totalTroops ?? 0,
+    city: e.city ? { name: e.city.name, hexQ: e.city.hex_q, hexR: e.city.hex_r, hexS: e.city.hex_s } : undefined,
+  }));
+  return {
+    playerId: ps.player_id, lordLevel: ps.lord_level, lordName: city.name || '', cityName: city.name || '',
+    province: city.province ? `${city.province} ${city.county || ''}` : '',
+    prosperity: ps.prosperity, resources: { wood: ps.wood, stone: ps.stone, iron: ps.iron, grain: ps.grain, copper: ps.copper, gold: ps.gold },
+    capacity: { wood: baseCap, stone: baseCap, iron: baseCap, grain: baseCap },
+    stamina, maxStamina: 200, reserveTroops: ps.reserve_troops, freeRecruits: ps.free_recruits,
+    armies, generals, city, buildings,
+    innerResourcePoints: raw.innerResourcePoints || [], ownedResourcePoints: raw.ownedResourcePoints || [],
+    resourcePointLimit: raw.resourcePointLimit || 10,
+    leaderboard: lb,
+    gachaState: { freePulls: ps.free_recruits || 0, goldBalance: ps.gold || 0 },
+    raw,
+  };
+}
+
+function normalizeMap(raw) {
+  return {
+    tiles: raw.tiles || [], resourcePoints: raw.resourcePoints || [],
+    recommendedTargets: raw.recommended_targets || [],
+    scanSummary: { bestNeutralTarget: raw.scan_summary?.best_neutral_target, actionHint: raw.scan_summary?.action_hint || '' },
+    seasonPhase: raw.season_phase || '',
+  };
+}
+
+// ===== 规则引擎（从 strategist.ts 移植）=====
+let standingDirectives = [];
+let lastError = null;
+let cachedTerritoryCap = null;
+
+function routineDecision(state, army, map) {
+  if (!army) return waitDec('没有可用军队');
+  const r = state.resources;
+  const armyBusy = army.status !== 'idle';
+
+  // 补兵
+  const cityQ = state.raw?.playerState?.hex_q ?? 0;
+  const cityR = state.raw?.playerState?.hex_r ?? 0;
+  const armyQ = army.raw?.hex_q;
+  const armyR = army.raw?.hex_r;
+  const inCity = !armyBusy && armyQ === cityQ && armyR === cityR;
+  if (!armyBusy && army.totalTroops < army.totalTroopCap && inCity) {
+    if (state.reserveTroops > 0) {
+      return { analysis: `兵力${army.totalTroops}/${army.totalTroopCap}，补充`, action: 'replenish', params: { armySlot: army.raw?.slot }, reasoning: '补兵' };
+    }
+    if (r.copper >= 100) {
+      return { analysis: '预备兵耗尽，购买', action: 'market_purchase', params: { item: 'reserve_troops' }, reasoning: '买预备兵' };
+    }
+  }
+
+  const armyStamina = typeof army.raw?.stamina === 'number' ? army.raw.stamina : state.stamina;
+
+  // 扩张
+  if (!armyBusy && armyStamina >= 10 && map && state.ownedResourcePoints.length < state.resourcePointLimit) {
+    const targets = (map.recommendedTargets || []).filter(t => t.prediction !== 'danger' && t.recommendation !== 'skip').sort((a, b) => a.distance - b.distance);
+    if (targets.length > 0 && army.totalTroops / army.totalTroopCap > 0.5) {
+      const shortage = ['wood','stone','iron','grain'].sort((a,b) => (r[a]||0) - (r[b]||0))[0];
+      const sorted = [...targets].sort((a, b) => ((a.resource_type === shortage ? -1000 : 0) + a.distance) - ((b.resource_type === shortage ? -1000 : 0) + b.distance));
+      const t = sorted[0];
+      return { analysis: `扩张 ${t.resource_type}Lv${t.level}(${t.distance}格)`, action: 'march', params: { targetQ: t.hex_q, targetR: t.hex_r, targetS: t.hex_s, intent: 'occupy', armySlot: army.raw?.slot }, reasoning: '扩张' };
+    }
+  }
+
+  // develop
+  if (!armyBusy && armyStamina >= 10 && army.totalTroops / army.totalTroopCap > 0.8) {
+    const outerDev = state.ownedResourcePoints.find(rp => rp.level >= 2 && rp.level <= 5 && rp.zone !== 'corridor');
+    const innerDev = state.innerResourcePoints.find(rp => rp.level >= 1 && rp.level <= 4);
+    const canDevelop = outerDev || innerDev;
+    if (canDevelop) {
+      return { analysis: `develop ${canDevelop.resource_type}Lv${canDevelop.level}`, action: 'develop', params: { resourcePointId: canDevelop.id, slot: army.raw?.slot }, reasoning: 'develop' };
+    }
+  }
+
+  // 建筑
+  const buildPriority = ['warehouse', 'army_camp', 'training_ground', 'barracks', 'conscription_office', 'residence'];
+  for (const bType of buildPriority) {
+    const b = state.buildings.find(x => x.type === bType);
+    if (b && b.level < state.lordLevel) {
+      return { analysis: `升级 ${bType} Lv${b.level}→${b.level+1}`, action: 'build', params: { buildingType: bType }, reasoning: '建筑升级' };
+    }
+  }
+
+  // 弃死地
+  if (state.ownedResourcePoints.length >= state.resourcePointLimit) {
+    const deadLands = state.ownedResourcePoints.filter(rp => rp.level >= 6 && rp.level <= 7).sort((a, b) => a.level - b.level);
+    if (deadLands.length > 0) {
+      return { analysis: `弃${deadLands[0].resource_type}Lv${deadLands[0].level}(死地)`, action: 'abandon', params: { resourcePointId: deadLands[0].id }, reasoning: '弃死地换Lv8' };
+    }
+  }
+
+  // upgrade
+  const upgradeCosts = { 1:[100,100,100], 2:[150,150,100], 3:[300,300,200], 4:[500,500,300] };
+  const shortageType = ['wood','stone','iron','grain'].sort((a,b) => (r[a]||0) - (r[b]||0))[0];
+  const upgradeable = state.ownedResourcePoints.filter(rp => {
+    if (rp.level >= 5 || rp.zone === 'corridor') return false;
+    const cost = upgradeCosts[rp.level] || [500,500,300];
+    return r.wood >= cost[0] && r.stone >= cost[1] && r.iron >= cost[2];
+  }).sort((a, b) => (a.resource_type === shortageType ? -1 : 0) - (b.resource_type === shortageType ? -1 : 0) || a.level - b.level);
+  if (upgradeable.length > 0) {
+    const u = upgradeable[0];
+    return { analysis: `升级 ${u.resource_type}Lv${u.level}→${u.level+1}`, action: 'upgrade_resource', params: { resourcePointId: u.id, targetLevel: u.level + 1 }, reasoning: 'upgrade' };
+  }
+
+  // 抽卡
+  if (state.gachaState.freePulls > 0 || state.gachaState.goldBalance >= 40) {
+    return { analysis: '抽卡', action: 'gacha', params: {}, reasoning: '抽卡' };
+  }
+
+  // 军队忙
+  if (armyBusy) return waitDec(`军队${army.status}中`);
+
+  return null;
+}
+
+function waitDec(reason) {
+  return { analysis: reason, action: 'wait', params: { reason }, reasoning: '等待' };
+}
+
+function makeDecision(state, map, lb) {
+  // 选最佳军队
+  const army = [...state.armies].sort((a, b) => {
+    const aI = a.status === 'idle' ? 1 : 0, bI = b.status === 'idle' ? 1 : 0;
+    if (aI !== bI) return bI - aI;
+    const aS = typeof a.raw?.stamina === 'number' ? a.raw.stamina : 0;
+    const bS = typeof b.raw?.stamina === 'number' ? b.raw.stamina : 0;
+    const aR = (aS >= 10 && a.totalTroops > 0) ? 1 : 0;
+    const bR = (bS >= 10 && b.totalTroops > 0) ? 1 : 0;
+    if (aR !== bR) return bR - aR;
+    return bS - aS;
+  })[0];
+
+  // 分配将领
+  const emptyArmy = state.armies.find(a => a.totalTroopCap === 0 && a.status === 'idle');
+  if (emptyArmy) {
+    const assignedIds = new Set(state.armies.flatMap(a => a.generals.map(g => g.id)));
+    const unassigned = state.generals.filter(g => !assignedIds.has(g.id));
+    if (unassigned.length >= 3) {
+      const toAssign = unassigned.slice(0, 3);
+      return { analysis: `分配将领到军队${emptyArmy.raw?.slot}`, action: 'assign_generals',
+        params: { assignments: toAssign.map(g => ({ generalId: g.id, troopType: g.troopType || 'infantry' })), armySlot: emptyArmy.raw?.slot },
+        reasoning: '双军队' };
+    }
+  }
+
+  const routine = routineDecision(state, army, map);
+  if (routine) return routine;
+  return waitDec('无可用操作');
+}
+
+// ===== 执行决策 =====
+async function executeDecision(decision) {
+  const p = decision.params || {};
+  switch (decision.action) {
+    case 'replenish': return api('POST', '/army/replenish', p.armySlot != null ? { slot: p.armySlot } : undefined);
+    case 'march': { const { armySlot, ...rest } = p; return api('POST', '/march/start', { ...rest, ...(armySlot != null && { slot: armySlot }) }); }
+    case 'develop': {
+      const result = await api('POST', '/march/start', { intent: 'develop', resourcePointId: p.resourcePointId, slot: p.slot ?? 1 });
+      if (result.blocked) { console.warn('develop blocked'); return result; }
+      return result;
+    }
+    case 'build': return api('POST', '/building/upgrade', { buildingType: p.buildingType });
+    case 'abandon': return api('POST', '/resource/abandon', { resourcePointId: p.resourcePointId });
+    case 'upgrade_resource': return api('POST', '/resource/upgrade', { resourcePointId: p.resourcePointId, targetLevel: p.targetLevel });
+    case 'gacha': return api('POST', '/gacha/pull');
+    case 'market_purchase': return api('POST', '/market/purchase', { item: p.item || p.itemType });
+    case 'assign_generals': return api('POST', '/army/assign', { assignments: p.assignments, slot: p.armySlot });
+    case 'wait': return null;
+    default: return null;
+  }
+}
+
+// ===== 游戏循环 =====
+let botRunning = false;
+let botTimer = null;
+let roundCount = 0;
+let latestState = null;
+let latestMap = null;
+let decisionHistory = [];
+
+async function gameLoopTick() {
+  if (!botRunning && roundCount > 0) return;
+  try {
+    roundCount++;
+    const [rawState, rawMap] = await Promise.all([
+      api('GET', '/state'),
+      api('GET', '/map/nearby').catch(() => null),
+    ]);
+    const state = normalizeState(rawState);
+    const map = rawMap ? normalizeMap(rawMap) : null;
+
+    // leaderboard
+    const lb = await fetch(LEADERBOARD_URL).then(r => r.json()).catch(() => null);
+    if (lb) {
+      const me = lb.players?.find(p => p.id === playerId);
+      if (me?.territoryCap) {
+        cachedTerritoryCap = me.territoryCap.max;
+      }
+    }
+    if (cachedTerritoryCap) state.resourcePointLimit = cachedTerritoryCap;
+
+    latestState = state;
+    latestMap = map;
+
+    // 更新 UI
+    renderAll(state, map, lb);
+
+    // 如果 bot 在运行，执行决策
+    if (botRunning) {
+      let actionsThisRound = 0;
+      const instantActions = ['upgrade_resource', 'replenish', 'gacha', 'abandon', 'build', 'market_purchase', 'assign_generals'];
+      while (actionsThisRound < 20) {
+        const decision = makeDecision(state, map, lb);
+        lastError = null;
+        addDecisionCard(roundCount, decision);
+        if (decision.action === 'wait') break;
+        try {
+          await executeDecision(decision);
+          actionsThisRound++;
+          if (!instantActions.includes(decision.action)) break;
+          // 刷新状态
+          const refreshed = normalizeState(await api('GET', '/state'));
+          Object.assign(state, refreshed);
+          latestState = state;
+        } catch (e) {
+          lastError = e.data?.error || e.message || 'unknown error';
+          console.error('执行失败:', decision.action, lastError);
+          break;
+        }
+      }
+    }
+
+    // 下一轮
+    const interval = botRunning ? 15000 : 30000;
+    botTimer = setTimeout(gameLoopTick, interval);
+
+  } catch (e) {
+    console.error('循环异常:', e);
+    botTimer = setTimeout(gameLoopTick, 15000);
+  }
+}
+
+function toggleBot() {
+  botRunning = !botRunning;
+  updateBotStatus();
+  if (botRunning && !botTimer) gameLoopTick();
+}
+
+function stopBot() {
+  botRunning = false;
+  if (botTimer) { clearTimeout(botTimer); botTimer = null; }
+  updateBotStatus();
+}
+
+function updateBotStatus() {
+  const el = document.getElementById('bot-status');
+  const btn = document.getElementById('bot-toggle');
+  if (botRunning) {
+    el.className = 'bot-status running'; el.textContent = '运行中';
+    btn.textContent = '暂停';
+  } else {
+    el.className = 'bot-status stopped'; el.textContent = '已停止';
+    btn.textContent = '启动';
+  }
+}
+
+// ===== UI 渲染 =====
+let myPlayerId = null;
+let mapOffsetX = 0, mapOffsetY = 0, mapScale = 0.6;
+let isDragging = false, dragStartX = 0, dragStartY = 0;
+
+function renderAll(state, map, lb) {
+  myPlayerId = state.playerId;
+  renderTopBar(state);
+  renderLeaderboard(state);
+  renderMap(state, map);
+  renderBottomBar(state);
+}
+
+function renderTopBar(state) {
+  const me = state.leaderboard?.find(e => e.playerId === myPlayerId);
+  const username = me?.name || storage.get('username') || '';
+  document.getElementById('lord-info').textContent = `${username} · ${state.cityName} Lv${state.lordLevel}`;
+  document.getElementById('round-info').textContent = `第 ${roundCount} 轮`;
+  const r = state.resources, c = state.capacity;
+  document.getElementById('resource-bar').innerHTML = [
+    res('wood','木',r.wood,c.wood), res('stone','石',r.stone,c.stone),
+    res('iron','铁',r.iron,c.iron), res('grain','粮',r.grain,c.grain),
+    res('copper','铜',r.copper),
+  ].join('');
+  const army = state.armies[0];
+  if (army) {
+    const tPct = Math.round(army.totalTroops / army.totalTroopCap * 100) || 0;
+    const stam = typeof army.raw?.stamina === 'number' ? army.raw.stamina : state.stamina;
+    const sPct = Math.round(stam / 200 * 100);
+    document.getElementById('army-info').innerHTML = `兵${army.totalTroops}/${army.totalTroopCap} <div class="bar-bg"><div class="bar-fill bar-troop" style="width:${tPct}%"></div></div> 体力${stam} <div class="bar-bg"><div class="bar-fill bar-stamina" style="width:${sPct}%"></div></div>`;
+  }
+}
+function res(type, label, val, cap) {
+  const warn = cap && val > cap * 0.8 ? 'color:var(--red)' : '';
+  return `<span class="res-item res-${type}"><span class="res-dot"></span>${label} <b style="${warn}">${val || 0}</b>${cap ? `/${cap}` : ''}</span>`;
+}
+
+function renderLeaderboard(state) {
+  document.getElementById('lb-list').innerHTML = state.leaderboard.map((e, i) => {
+    const isMe = e.playerId === myPlayerId;
+    return `<div class="lb-row ${isMe ? 'is-me' : ''}"><span class="lb-rank">${i+1}.</span><span class="lb-name">${isMe ? '* ' : ''}${e.name}</span><span class="lb-detail">Lv${e.lordLevel} 领地${e.territories}</span></div>`;
+  }).join('');
+}
+
+function renderBottomBar(state) {
+  const bNames = { warehouse:'仓库', barracks:'兵营', army_camp:'军营', training_ground:'校场', residence:'民居', conscription_office:'征兵所' };
+  document.getElementById('buildings-info').innerHTML = state.buildings.filter(b => b.level > 0).map(b => `${bNames[b.type]||b.type}Lv${b.level}`).join(' | ');
+  const cnt = {};
+  for (const rp of state.ownedResourcePoints) { const t = rp.resource_type; cnt[t] = (cnt[t]||0) + 1; }
+  document.getElementById('territory-info').textContent = `领地 ${state.ownedResourcePoints.length}/${state.resourcePointLimit}`;
+}
+
+// ===== 地图渲染 =====
+const HEX_SIZE = 18;
+const RES_COLORS = { wood: '#6b8e23', stone: '#888c8d', iron: '#8b6914', grain: '#daa520' };
+const PLAYER_COLORS = ['#40c860','#e84040','#4090e8','#e88840','#a040e8','#40c8c8'];
+const playerColorMap = {};
+let colorIdx = 0;
+function getPlayerColor(pid) {
+  if (pid === myPlayerId) return PLAYER_COLORS[0];
+  if (!playerColorMap[pid]) { colorIdx++; playerColorMap[pid] = PLAYER_COLORS[colorIdx % PLAYER_COLORS.length]; }
+  return playerColorMap[pid];
+}
+function hexToPixel(q, r) { return { x: HEX_SIZE * (3/2 * q), y: HEX_SIZE * (Math.sqrt(3)/2 * q + Math.sqrt(3) * r) }; }
+function hexPoints(cx, cy, size) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) { const a = Math.PI/180*(60*i-30); pts.push(`${cx+size*Math.cos(a)},${cy+size*Math.sin(a)}`); }
+  return pts.join(' ');
+}
+
+function renderMap(state, map) {
+  if (!map) return;
+  const svg = document.getElementById('map-svg');
+  const rect = svg.getBoundingClientRect();
+  const cx = rect.width/2, cy = rect.height/2;
+  let centerQ = 0, centerR = 0;
+  const me = state.leaderboard?.find(e => e.playerId === myPlayerId);
+  if (me?.city) { centerQ = me.city.hexQ || 0; centerR = me.city.hexR || 0; }
+  const knownTiles = new Map();
+  for (const t of (map.resourcePoints || [])) {
+    if (t.hex_q == null || Math.abs(t.hex_q) > 1000) continue;
+    knownTiles.set(`${t.hex_q},${t.hex_r}`, t);
+  }
+  for (const t of (map.tiles || [])) {
+    if (t.hex_q == null || Math.abs(t.hex_q) > 1000) continue;
+    const key = `${t.hex_q},${t.hex_r}`;
+    if (!knownTiles.has(key)) knownTiles.set(key, t);
+  }
+  const playerCities = (state.leaderboard || []).filter(p => p.city).map(p => ({ id: p.playerId, name: p.name, level: p.lordLevel, q: p.city.hexQ, r: p.city.hexR }));
+  let html = `<g transform="translate(${cx+mapOffsetX},${cy+mapOffsetY}) scale(${mapScale})">`;
+  // tiles
+  for (const tile of knownTiles.values()) {
+    const q = tile.hex_q - centerQ, r = tile.hex_r - centerR;
+    const {x, y} = hexToPixel(q, r);
+    const resType = tile.resource_type || tile.type || '';
+    const ownerId = tile.owner_id || null;
+    const level = tile.resource_level || tile.level || 0;
+    if (tile.terrain === 'city') { html += `<polygon points="${hexPoints(x,y,HEX_SIZE-1)}" fill="#1a1a10" stroke="#555" stroke-width="1.5" />`; continue; }
+    const color = RES_COLORS[resType] || '#334';
+    const isCorridor = tile.zone === 'corridor';
+    html += `<polygon points="${hexPoints(x,y,HEX_SIZE-1)}" fill="${color}" fill-opacity="${isCorridor?0.85:0.6}" stroke="${isCorridor?'#997':'#253025'}" stroke-width="${isCorridor?1:0.5}" />`;
+    if (ownerId) { const pc = getPlayerColor(ownerId); html += `<polygon points="${hexPoints(x,y,HEX_SIZE-1)}" fill="${pc}" fill-opacity="0.3" stroke="${pc}" stroke-width="1.5" pointer-events="none" />`; }
+    if (level) { const fs = level >= 7 ? 12 : level >= 4 ? 10 : 8; html += `<text x="${x}" y="${y+fs/3}" text-anchor="middle" fill="white" font-size="${fs}" font-weight="bold" pointer-events="none">${level}</text>`; }
+  }
+  // cities
+  for (const p of playerCities) {
+    const cq = p.q - centerQ, cr = p.r - centerR;
+    const {x, y} = hexToPixel(cq, cr);
+    const pc = getPlayerColor(p.id);
+    const isMe = p.id === myPlayerId;
+    html += `<polygon points="${hexPoints(x,y,HEX_SIZE+4)}" fill="${pc}" fill-opacity="0.12" stroke="${pc}" stroke-width="${isMe?3:2}" stroke-dasharray="${isMe?'0':'4,3'}" pointer-events="none" />`;
+    html += `<circle cx="${x}" cy="${y}" r="${isMe?5:3.5}" fill="${pc}" pointer-events="none" />`;
+    html += `<text x="${x}" y="${y-HEX_SIZE-6}" text-anchor="middle" fill="${pc}" font-size="${isMe?12:10}" font-weight="bold" pointer-events="none">${isMe?'* ':''}${p.name}</text>`;
+  }
+  html += '</g>';
+  svg.innerHTML = html;
+}
+
+// 地图交互
+const mapPanel = document.getElementById('map-panel');
+mapPanel?.addEventListener('mousedown', e => { isDragging = true; dragStartX = e.clientX - mapOffsetX; dragStartY = e.clientY - mapOffsetY; });
+mapPanel?.addEventListener('mousemove', e => { if (isDragging && latestState) { mapOffsetX = e.clientX - dragStartX; mapOffsetY = e.clientY - dragStartY; renderMap(latestState, latestMap); }});
+mapPanel?.addEventListener('mouseup', () => isDragging = false);
+mapPanel?.addEventListener('mouseleave', () => isDragging = false);
+mapPanel?.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = mapPanel.getBoundingClientRect();
+  const mx = e.clientX - rect.left - rect.width/2, my = e.clientY - rect.top - rect.height/2;
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  const ns = Math.max(0.2, Math.min(5, mapScale * delta));
+  mapOffsetX = mx - (mx - mapOffsetX) * (ns / mapScale);
+  mapOffsetY = my - (my - mapOffsetY) * (ns / mapScale);
+  mapScale = ns;
+  if (latestState) renderMap(latestState, latestMap);
+}, { passive: false });
+function zoomIn() { mapScale = Math.min(5, mapScale * 1.3); if (latestState) renderMap(latestState, latestMap); }
+function zoomOut() { mapScale = Math.max(0.2, mapScale * 0.77); if (latestState) renderMap(latestState, latestMap); }
+function resetMap() { mapOffsetX = 0; mapOffsetY = 0; mapScale = 0.6; if (latestState) renderMap(latestState, latestMap); }
+
+// ===== 决策卡片 =====
+function addDecisionCard(round, d) {
+  const list = document.getElementById('decision-list');
+  if (!list) return;
+  const actionClass = { march:'action-march', replenish:'action-replenish', build:'action-build', gacha:'action-gacha', wait:'action-wait', develop:'action-march', upgrade_resource:'action-build' }[d.action] || 'action-default';
+  const actionNames = { march:'行军', replenish:'补兵', build:'建造', gacha:'抽卡', wait:'等待', develop:'开发', upgrade_resource:'升级', abandon:'放弃', assign_generals:'分配', market_purchase:'购买' };
+  const card = document.createElement('div');
+  card.className = 'decision-card';
+  card.innerHTML = `<div class="decision-round">第 ${round} 轮 | ${new Date().toLocaleTimeString('zh-CN')}</div><div class="decision-analysis">${d.analysis}</div><span class="decision-action ${actionClass}">${actionNames[d.action]||d.action}</span><div class="decision-reasoning">${d.reasoning}</div>`;
+  list.prepend(card);
+  while (list.children.length > 50) list.removeChild(list.lastChild);
+  decisionHistory.push({ round, decision: d });
+}
+
+// ===== 对话（指令系统）=====
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  addChatMsg('主公', msg, 'user');
+  standingDirectives.push(msg);
+  addChatMsg('军师', `遵命。已记录指令: "${msg}"`, 'bot');
+  input.value = '';
+}
+function addChatMsg(sender, text, cls) {
+  const c = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + cls;
+  div.innerHTML = `<span class="sender">${sender}:</span> ${text}`;
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+document.getElementById('chat-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+// ===== 初始化 =====
+(function init() {
+  // 已有配置？跳过设置
+  if (storage.get('ai_provider')) {
+    document.getElementById('setup-overlay').classList.add('hidden');
+    // 已有 token？直接进游戏
+    if (storage.get('token') && storage.get('playerId')) {
+      authToken = storage.get('token');
+      playerId = storage.get('playerId');
+      enterGame();
+    } else {
+      document.getElementById('login-overlay').classList.remove('hidden');
+    }
+  }
+  // 恢复 AI 选择
+  if (storage.get('ai_provider')) selectAI(storage.get('ai_provider'));
+})();
+</script>
+</body>
+</html>

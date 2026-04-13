@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0e17">
+<title>CLISLG 助手</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- 设置向导 -->
+<div id="setup-overlay" class="overlay">
+  <div class="card">
+    <div class="step-indicator"><div class="step active"></div><div class="step"></div></div>
+    <h1>CLISLG 助手</h1>
+    <h2>"知己知彼，百战不殆"</h2>
+    <p class="hint">选择 AI 军师引擎（可选，不影响自动游戏）</p>
+    <div class="options" id="ai-options"></div>
+    <div id="api-key-section" class="hidden">
+      <label id="api-key-label">API Key</label>
+      <input id="api-key-input" type="password" placeholder="sk-..." />
+      <p class="hint">Key 仅存在你的浏览器本地，不会发送到第三方</p>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="setup-next">下一步</button>
+      <button class="btn btn-secondary" id="setup-skip">跳过</button>
+    </div>
+  </div>
+</div>
+
+<!-- 登录注册 -->
+<div id="login-overlay" class="overlay hidden">
+  <div class="card">
+    <div class="step-indicator"><div class="step"></div><div class="step active"></div></div>
+    <h1>进入战场</h1>
+    <h2>登录已有账号或创建新势力</h2>
+    <label>势力名（用户名）</label>
+    <input id="login-user" placeholder="输入你的势力名" autocomplete="username" />
+    <label>密码</label>
+    <input id="login-pass" type="password" placeholder="输入密码" autocomplete="current-password" />
+    <div class="error hidden" id="login-error"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="login-btn">登录</button>
+      <button class="btn btn-secondary" id="register-btn">注册新势力</button>
+    </div>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="app" class="hidden">
+  <!-- 顶栏 -->
+  <div id="top-bar">
+    <span class="lord-info" id="lord-info">加载中...</span>
+    <div class="resource-bar" id="resource-bar"></div>
+    <div class="army-info" id="army-info"></div>
+    <div class="top-actions">
+      <span id="round-info"></span>
+      <span class="bot-status stopped" id="bot-status">已停止</span>
+      <button class="bot-btn" id="bot-toggle">启动</button>
+      <button class="bot-btn" id="logout-btn">登出</button>
+    </div>
+  </div>
+
+  <!-- PC 布局：地图 + 右侧面板 -->
+  <div id="main">
+    <div id="map-panel">
+      <svg id="map-svg"></svg>
+      <div id="map-tooltip"></div>
+      <div id="map-controls">
+        <button id="zoom-in">+</button>
+        <button id="zoom-out">-</button>
+        <button id="zoom-reset">R</button>
+      </div>
+      <div id="map-legend">
+        <div class="legend-item"><div class="legend-color" style="background:#6b8e23"></div>木</div>
+        <div class="legend-item"><div class="legend-color" style="background:#888c8d"></div>石</div>
+        <div class="legend-item"><div class="legend-color" style="background:#8b6914"></div>铁</div>
+        <div class="legend-item"><div class="legend-color" style="background:#daa520"></div>粮</div>
+        <div class="legend-item"><div class="legend-color" style="background:#40c860"></div>我方</div>
+        <div class="legend-item"><div class="legend-color" style="background:#e84040"></div>敌方</div>
+      </div>
+    </div>
+
+    <div id="right-panel">
+      <div id="leaderboard"><h3>排行榜</h3><div id="lb-list"></div></div>
+      <div id="decisions"><h3>军师战报</h3><div id="decision-list"></div></div>
+      <div id="chat-panel">
+        <div id="chat-messages"></div>
+        <div id="chat-input-area">
+          <input id="chat-input" placeholder="下达指令..." />
+          <button id="chat-send">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PC 底栏 -->
+  <div id="bottom-bar">
+    <span id="buildings-info"></span>
+    <span id="territory-info" style="margin-left:auto"></span>
+  </div>
+
+  <!-- 手机 Tab 内容 -->
+  <div id="tab-map" class="tab-content active"></div>
+  <div id="tab-status" class="tab-content">
+    <div id="m-resources"></div>
+    <div id="m-armies"></div>
+    <div id="m-buildings"></div>
+    <div id="m-leaderboard"></div>
+  </div>
+  <div id="tab-log" class="tab-content">
+    <div id="m-decisions"></div>
+    <div id="m-chat"></div>
+  </div>
+  <div id="tab-settings" class="tab-content">
+    <div id="m-settings"></div>
+  </div>
+
+  <!-- 手机 Tab 栏 -->
+  <div id="tab-bar">
+    <div class="tab active" data-tab="tab-map">🗺️<span>地图</span></div>
+    <div class="tab" data-tab="tab-status">📊<span>状态</span></div>
+    <div class="tab" data-tab="tab-log">📜<span>战报</span></div>
+    <div class="tab" data-tab="tab-settings">⚙️<span>设置</span></div>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

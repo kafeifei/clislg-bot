@@ -1,0 +1,8 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/ai-proxy", "destination": "/api/ai-proxy" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
