@@ -5,4 +5,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
   },
+  server: {
+    fs: {
+      allow: ['..'], // 允许访问上级目录的 src/core/
+    },
+  },
 });
