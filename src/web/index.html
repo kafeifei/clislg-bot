@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLISLG 助手 - 观战面板</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0a0e17; --bg2: #111827; --bg3: #1a2332;
+  --border: #2a3a4a; --text: #e0e8f0; --text2: #8899aa;
+  --gold: #f0c040; --red: #e84040; --green: #40c860;
+  --blue: #4090e8; --orange: #e88840;
+  --wood: #6b8e23; --stone: #888c8d; --iron: #8b6914; --grain: #daa520;
+}
+body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; height: 100vh; overflow: hidden; }
+
+/* 顶栏 */
+#top-bar { display: flex; align-items: center; gap: 16px; padding: 8px 16px; background: var(--bg2); border-bottom: 1px solid var(--border); height: 48px; flex-shrink: 0; }
+.lord-info { font-weight: bold; color: var(--gold); font-size: 15px; }
+.resource-bar { display: flex; gap: 12px; }
+.res-item { display: flex; align-items: center; gap: 4px; }
+.res-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.res-wood .res-dot { background: var(--wood); }
+.res-stone .res-dot { background: var(--stone); }
+.res-iron .res-dot { background: var(--iron); }
+.res-grain .res-dot { background: var(--grain); }
+.res-copper .res-dot { background: var(--orange); }
+.army-info { display: flex; gap: 8px; align-items: center; }
+.bar-bg { width: 80px; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.bar-troop { background: var(--green); }
+.bar-stamina { background: var(--blue); }
+.round-info { margin-left: auto; color: var(--text2); }
+
+/* 主体 */
+#main { display: flex; flex: 1; height: calc(100vh - 48px); }
+
+/* 左侧地图 */
+#map-panel { flex: 1; position: relative; overflow: hidden; background: var(--bg); }
+#map-svg { width: 100%; height: 100%; }
+#map-tooltip { position: absolute; display: none; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 12px; pointer-events: none; z-index: 10; max-width: 260px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+#map-controls { position: absolute; top: 12px; right: 12px; display: flex; gap: 4px; z-index: 10; }
+#map-controls button { width: 32px; height: 32px; background: var(--bg3); border: 1px solid var(--border); color: var(--text); font-size: 16px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+#map-controls button:hover { background: var(--border); }
+#map-legend { position: absolute; bottom: 12px; left: 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 11px; display: flex; gap: 10px; }
+.legend-item { display: flex; align-items: center; gap: 4px; }
+.legend-color { width: 12px; height: 12px; border-radius: 2px; }
+
+/* 右侧面板 */
+#right-panel { width: 400px; display: flex; flex-direction: column; border-left: 1px solid var(--border); flex-shrink: 0; }
+
+/* 排行榜 */
+#leaderboard { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 8px; max-height: 180px; overflow-y: auto; flex-shrink: 0; }
+#leaderboard h3 { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+.lb-row { display: flex; padding: 3px 4px; border-radius: 3px; cursor: pointer; font-size: 12px; }
+.lb-row:hover { background: var(--bg3); }
+.lb-row.is-me { color: var(--gold); font-weight: bold; }
+.lb-rank { width: 24px; color: var(--text2); }
+.lb-name { flex: 1; }
+.lb-detail { color: var(--text2); }
+
+/* 军师战报 */
+#decisions { flex: 1; overflow-y: auto; padding: 8px; background: var(--bg); }
+#decisions h3 { font-size: 12px; color: var(--text2); margin-bottom: 6px; position: sticky; top: 0; background: var(--bg); padding-bottom: 4px; }
+.decision-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
+.decision-round { font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+.decision-analysis { color: var(--gold); margin-bottom: 6px; line-height: 1.5; }
+.decision-action { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; margin-bottom: 4px; }
+.action-march { background: var(--red); color: white; }
+.action-replenish { background: var(--green); color: white; }
+.action-build { background: var(--blue); color: white; }
+.action-gacha { background: var(--gold); color: black; }
+.action-wait { background: var(--border); color: var(--text2); }
+.action-default { background: var(--orange); color: white; }
+.decision-reasoning { font-size: 12px; color: var(--text2); line-height: 1.4; }
+
+/* 指令标签 */
+#directives { padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--bg3); display: none; flex-shrink: 0; }
+#directives.has-items { display: block; }
+.directive-tag { display: inline-flex; align-items: center; gap: 4px; background: var(--gold); color: black; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin: 2px; }
+.directive-tag .remove { cursor: pointer; font-weight: bold; opacity: 0.6; }
+.directive-tag .remove:hover { opacity: 1; }
+
+/* 对话 */
+#chat-panel { border-top: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; max-height: 280px; display: flex; flex-direction: column; }
+#chat-messages { flex: 1; overflow-y: auto; padding: 8px; min-height: 80px; }
+.chat-msg { margin-bottom: 6px; line-height: 1.4; }
+.chat-msg.user { color: var(--blue); }
+.chat-msg.bot { color: var(--gold); }
+.chat-msg .sender { font-weight: bold; }
+#chat-input-area { display: flex; padding: 8px; gap: 6px; border-top: 1px solid var(--border); }
+#chat-input { flex: 1; background: var(--bg3); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-family: inherit; font-size: 13px; outline: none; }
+#chat-input:focus { border-color: var(--blue); }
+#chat-send { background: var(--blue); color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 13px; }
+#chat-send:hover { opacity: 0.8; }
+
+/* 底栏 */
+#bottom-bar { display: flex; gap: 12px; padding: 6px 16px; background: var(--bg2); border-top: 1px solid var(--border); font-size: 12px; color: var(--text2); flex-shrink: 0; overflow-x: auto; }
+.building-item { display: flex; align-items: center; gap: 4px; }
+.territory-summary { margin-left: auto; }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div id="top-bar">
+  <span class="lord-info" id="lord-info">连接中...</span>
+  <div class="resource-bar" id="resource-bar"></div>
+  <div class="army-info" id="army-info"></div>
+  <span class="round-info" id="round-info"></span>
+</div>
+
+<div id="main">
+  <div id="map-panel">
+    <svg id="map-svg"></svg>
+    <div id="map-tooltip"></div>
+    <div id="map-controls">
+      <button onclick="zoomIn()" title="放大">+</button>
+      <button onclick="zoomOut()" title="缩小">-</button>
+      <button onclick="resetMap()" title="重置">R</button>
+    </div>
+    <div id="map-legend">
+      <div class="legend-item"><div class="legend-color" style="background:var(--wood)"></div>木材</div>
+      <div class="legend-item"><div class="legend-color" style="background:var(--stone)"></div>石材</div>
+      <div class="legend-item"><div class="legend-color" style="background:var(--iron)"></div>铁矿</div>
+      <div class="legend-item"><div class="legend-color" style="background:var(--grain)"></div>粮食</div>
+      <div class="legend-item"><div class="legend-color" style="background:#e84040;border:2px solid #ff6060"></div>敌方</div>
+      <div class="legend-item"><div class="legend-color" style="background:#40c860;border:2px solid #60ff80"></div>我方</div>
+    </div>
+  </div>
+
+  <div id="right-panel">
+    <div id="leaderboard"><h3>排行榜</h3><div id="lb-list"></div></div>
+    <div id="directives"></div>
+    <div id="decisions"><h3>军师战报</h3><div id="decision-list"></div></div>
+    <div id="chat-panel">
+      <div id="chat-messages"></div>
+      <div id="chat-input-area">
+        <input id="chat-input" placeholder="对军师下达指令..." />
+        <button id="chat-send">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="bottom-bar" id="bottom-bar">
+  <span id="buildings-info">加载中...</span>
+  <span class="territory-summary" id="territory-info"></span>
+</div>
+
+<script>
+// ========== WebSocket ==========
+let ws;
+let state = null;
+let mapData = null;
+let myPlayerId = null;
+let round = 0;
+
+// 地图变换
+let mapOffsetX = 0, mapOffsetY = 0, mapScale = 0.6;
+let isDragging = false, dragStartX = 0, dragStartY = 0;
+
+function connect() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${location.host}`);
+  ws.onopen = () => console.log('已连接');
+  ws.onclose = () => { console.log('断开，3秒后重连'); setTimeout(connect, 3000); };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    handleMessage(msg);
+  };
+}
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'state':
+      state = msg.data.state;
+      mapData = msg.data.map;
+      round = msg.data.round;
+      myPlayerId = state.playerId;
+      renderTopBar();
+      renderLeaderboard();
+      renderMap();
+      renderBottomBar();
+      break;
+    case 'decision':
+      addDecisionCard(msg.data);
+      break;
+    case 'history':
+      for (const d of msg.data) addDecisionCard(d);
+      break;
+    case 'chat_response':
+      addChatMessage('军师', msg.data.reply, 'bot');
+      break;
+    case 'directive_update':
+      renderDirectives(msg.data);
+      break;
+    case 'log':
+      break;
+    case 'reload':
+      console.log('页面已更新，自动刷新...');
+      location.reload();
+      break;
+  }
+}
+
+// ========== 顶栏 ==========
+function renderTopBar() {
+  if (!state) return;
+  document.getElementById('lord-info').textContent = `${state.lordName || '领主'} Lv${state.lordLevel}`;
+  document.getElementById('round-info').textContent = `第 ${round} 轮`;
+
+  const r = state.resources, c = state.capacity;
+  const resBar = document.getElementById('resource-bar');
+  resBar.innerHTML = [
+    res('wood', '木', r.wood, c.wood),
+    res('stone', '石', r.stone, c.stone),
+    res('iron', '铁', r.iron, c.iron),
+    res('grain', '粮', r.grain, c.grain),
+    res('copper', '铜', r.copper),
+  ].join('');
+
+  const army = state.armies[0];
+  const armyDiv = document.getElementById('army-info');
+  if (army) {
+    const tPct = Math.round(army.totalTroops / army.totalTroopCap * 100);
+    const stamina = state.stamina ?? 200;
+    const maxStamina = state.maxStamina ?? 200;
+    const sPct = Math.round(stamina / maxStamina * 100);
+    armyDiv.innerHTML = `
+      兵${army.totalTroops}/${army.totalTroopCap} <div class="bar-bg"><div class="bar-fill bar-troop" style="width:${tPct}%"></div></div>
+      体力${stamina} <div class="bar-bg"><div class="bar-fill bar-stamina" style="width:${sPct}%"></div></div>
+    `;
+  }
+}
+
+function res(type, label, val, cap) {
+  const pct = cap ? Math.round(val / cap * 100) : 0;
+  const warn = pct > 80 ? 'color:var(--red)' : '';
+  return `<span class="res-item res-${type}"><span class="res-dot"></span>${label} <b style="${warn}">${val}</b>${cap ? `/${cap}` : ''}</span>`;
+}
+
+// ========== 排行榜 ==========
+function renderLeaderboard() {
+  if (!state) return;
+  const list = document.getElementById('lb-list');
+  list.innerHTML = state.leaderboard.map((e, i) => {
+    const isMe = e.playerId === myPlayerId;
+    return `<div class="lb-row ${isMe ? 'is-me' : ''}" onclick="focusPlayer('${e.playerId}')">
+      <span class="lb-rank">${i + 1}.</span>
+      <span class="lb-name">${isMe ? '★ ' : ''}${e.name}</span>
+      <span class="lb-detail">Lv${e.lordLevel} 领地${e.territories} 兵${e.troops}</span>
+    </div>`;
+  }).join('');
+}
+
+// ========== 地图 ==========
+const HEX_SIZE = 18;
+const RES_COLORS = { wood: '#6b8e23', stone: '#888c8d', iron: '#8b6914', grain: '#daa520' };
+const PLAYER_COLORS = ['#40c860','#e84040','#4090e8','#e88840','#a040e8','#40c8c8','#c8c840','#c84080'];
+const TERRAIN_COLOR = '#1e2a1e';
+const TERRAIN_STROKE = '#253025';
+
+// 为每个玩家分配颜色（缓存）
+const playerColorMap = {};
+let colorIdx = 0;
+function getPlayerColor(pid) {
+  if (pid === myPlayerId) return PLAYER_COLORS[0]; // 绿色留给自己
+  if (!playerColorMap[pid]) {
+    colorIdx++;
+    playerColorMap[pid] = PLAYER_COLORS[colorIdx % PLAYER_COLORS.length];
+  }
+  return playerColorMap[pid];
+}
+
+function hexToPixel(q, r) {
+  const x = HEX_SIZE * (3/2 * q);
+  const y = HEX_SIZE * (Math.sqrt(3)/2 * q + Math.sqrt(3) * r);
+  return { x, y };
+}
+
+function hexPoints(cx, cy, size) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = Math.PI / 180 * (60 * i - 30);
+    pts.push(`${cx + size * Math.cos(angle)},${cy + size * Math.sin(angle)}`);
+  }
+  return pts.join(' ');
+}
+
+function renderMap() {
+  if (!mapData) return;
+  const svg = document.getElementById('map-svg');
+  const rect = svg.getBoundingClientRect();
+  const cx = rect.width / 2, cy = rect.height / 2;
+
+  // 中心 = 自己的城池
+  let centerQ = 0, centerR = 0;
+  if (state) {
+    const me = state.leaderboard.find(e => e.playerId === myPlayerId);
+    if (me?.city) { centerQ = me.city.hexQ ?? me.city.hex_q ?? 0; centerR = me.city.hexR ?? me.city.hex_r ?? 0; }
+  }
+
+  // 收集资源点（过滤内城虚拟坐标）
+  const knownTiles = new Map();
+  for (const t of (mapData.resourcePoints || [])) {
+    if (t.hex_q == null || Math.abs(t.hex_q) > 1000 || Math.abs(t.hex_r) > 1000) continue;
+    knownTiles.set(`${t.hex_q},${t.hex_r}`, t);
+  }
+  for (const t of (mapData.tiles || [])) {
+    if (t.hex_q == null || Math.abs(t.hex_q) > 1000) continue;
+    const key = `${t.hex_q},${t.hex_r}`;
+    if (!knownTiles.has(key)) knownTiles.set(key, t);
+  }
+
+  // 玩家城池列表
+  const playerCities = (state?.leaderboard || []).filter(p => p.city).map(p => ({
+    id: p.playerId, name: p.name, level: p.lordLevel, territories: p.territories,
+    q: (p.city.hexQ ?? p.city.hex_q), r: (p.city.hexR ?? p.city.hex_r),
+  }));
+
+  // 分析走廊连接关系（哪两个城池之间有走廊）
+  const corridorTiles = [...knownTiles.values()].filter(t => t.zone === 'corridor');
+  const links = new Map(); // "cityA-cityB" -> corridor count
+  for (const t of corridorTiles) {
+    const dists = playerCities.map(c => ({ name: c.name, id: c.id, d: Math.max(Math.abs(t.hex_q - c.q), Math.abs(t.hex_r - c.r)) })).sort((a,b) => a.d - b.d);
+    if (dists.length >= 2) {
+      const key = [dists[0].id, dists[1].id].sort().join('-');
+      links.set(key, (links.get(key) || 0) + 1);
+    }
+  }
+
+  let html = `<g transform="translate(${cx + mapOffsetX},${cy + mapOffsetY}) scale(${mapScale})">`;
+
+  // ===== 第1层：走廊连接带 =====
+  // 在有走廊连接的城池之间画半透明带状路径
+  for (const [key, count] of links) {
+    const [idA, idB] = key.split('-');
+    const a = playerCities.find(c => c.id === idA);
+    const b = playerCities.find(c => c.id === idB);
+    if (!a || !b) continue;
+    const ax = hexToPixel(a.q - centerQ, a.r - centerR);
+    const bx = hexToPixel(b.q - centerQ, b.r - centerR);
+    // 带宽度根据走廊数量
+    const w = Math.max(3, Math.min(12, count * 0.8));
+    html += `<line x1="${ax.x}" y1="${ax.y}" x2="${bx.x}" y2="${bx.y}" stroke="#3a4a3a" stroke-width="${w}" stroke-linecap="round" pointer-events="none" />`;
+    // 中点标注距离
+    const mx = (ax.x + bx.x) / 2, my = (ax.y + bx.y) / 2;
+    const dist = Math.max(Math.abs(a.q - b.q), Math.abs(a.r - b.r));
+    html += `<text x="${mx}" y="${my - 6}" text-anchor="middle" fill="#556" font-size="7" pointer-events="none">${dist}格</text>`;
+  }
+
+  // 直接相邻（无走廊）的城池画虚线
+  for (let i = 0; i < playerCities.length; i++) {
+    for (let j = i + 1; j < playerCities.length; j++) {
+      const a = playerCities[i], b = playerCities[j];
+      const dist = Math.max(Math.abs(a.q - b.q), Math.abs(a.r - b.r));
+      const key = [a.id, b.id].sort().join('-');
+      if (dist <= 20 && !links.has(key)) {
+        const ax = hexToPixel(a.q - centerQ, a.r - centerR);
+        const bx = hexToPixel(b.q - centerQ, b.r - centerR);
+        html += `<line x1="${ax.x}" y1="${ax.y}" x2="${bx.x}" y2="${bx.y}" stroke="#334" stroke-width="1" stroke-dasharray="4,4" pointer-events="none" />`;
+        const mx = (ax.x + bx.x) / 2, my = (ax.y + bx.y) / 2;
+        html += `<text x="${mx}" y="${my - 4}" text-anchor="middle" fill="#445" font-size="7" pointer-events="none">${dist}格</text>`;
+      }
+    }
+  }
+
+  // ===== 第2层：私有区底板 =====
+  for (const p of playerCities) {
+    const cq = p.q - centerQ, cr = p.r - centerR;
+    const { x, y } = hexToPixel(cq, cr);
+    const pColor = getPlayerColor(p.id);
+    // 半径3格的六角形底板
+    const zoneR = HEX_SIZE * 4 * Math.sqrt(3);
+    html += `<polygon points="${hexPoints(x, y, zoneR)}" fill="${pColor}" fill-opacity="0.05" stroke="${pColor}" stroke-width="1" stroke-opacity="0.15" pointer-events="none" />`;
+  }
+
+  // ===== 第3层：资源点 =====
+  for (const tile of knownTiles.values()) {
+    const q = tile.hex_q - centerQ, r = tile.hex_r - centerR;
+    const { x, y } = hexToPixel(q, r);
+    const resType = tile.resource_type || tile.type || '';
+    const terrain = tile.terrain || '';
+    const ownerId = tile.owner_id || null;
+    const level = tile.resource_level || tile.level || 0;
+    const isCorridor = tile.zone === 'corridor';
+
+    // 城池格子
+    if (terrain === 'city') {
+      html += `<polygon points="${hexPoints(x, y, HEX_SIZE - 1)}" fill="#1a1a10" stroke="#555" stroke-width="1.5" />`;
+      continue;
+    }
+
+    const color = RES_COLORS[resType] || '#334';
+
+    // 底色六角格
+    if (isCorridor) {
+      // 走廊：更亮 + 金色细边
+      html += `<polygon points="${hexPoints(x, y, HEX_SIZE - 1)}" fill="${color}" fill-opacity="0.85" stroke="#997" stroke-width="1"
+        onmouseenter="showTip(evt, ${JSON.stringify(JSON.stringify(tile))})" onmouseleave="hideTip()" />`;
+    } else {
+      // 私有区：正常
+      html += `<polygon points="${hexPoints(x, y, HEX_SIZE - 1)}" fill="${color}" fill-opacity="0.6" stroke="#253025" stroke-width="0.5"
+        onmouseenter="showTip(evt, ${JSON.stringify(JSON.stringify(tile))})" onmouseleave="hideTip()" />`;
+    }
+
+    // 领地归属色覆盖
+    if (ownerId) {
+      const pColor = getPlayerColor(ownerId);
+      html += `<polygon points="${hexPoints(x, y, HEX_SIZE - 1)}" fill="${pColor}" fill-opacity="0.3" stroke="${pColor}" stroke-width="1.5" pointer-events="none" />`;
+    }
+
+    // 等级标签
+    if (level) {
+      const fs = level >= 7 ? 12 : level >= 4 ? 10 : 8;
+      const glow = level >= 7 ? ' style="filter:drop-shadow(0 0 3px #fff)"' : level >= 4 ? ' style="filter:drop-shadow(0 0 2px rgba(255,255,255,0.5))"' : '';
+      html += `<text x="${x}" y="${y + fs/3}" text-anchor="middle" fill="white" font-size="${fs}" font-weight="bold" pointer-events="none"${glow}>${level}</text>`;
+    }
+  }
+
+  // ===== 第4层：城池标记 =====
+  for (const p of playerCities) {
+    const cq = p.q - centerQ, cr = p.r - centerR;
+    const { x, y } = hexToPixel(cq, cr);
+    const pColor = getPlayerColor(p.id);
+    const isMe = p.id === myPlayerId;
+
+    // 城池发光外圈
+    html += `<polygon points="${hexPoints(x, y, HEX_SIZE + 4)}" fill="${pColor}" fill-opacity="0.12" stroke="${pColor}" stroke-width="${isMe ? 3 : 2}" stroke-dasharray="${isMe ? '0' : '4,3'}" pointer-events="none" />`;
+    // 城池中心点
+    html += `<circle cx="${x}" cy="${y}" r="${isMe ? 5 : 3.5}" fill="${pColor}" pointer-events="none" />`;
+    // 玩家名（上方）
+    html += `<text x="${x}" y="${y - HEX_SIZE - 6}" text-anchor="middle" fill="${pColor}" font-size="${isMe ? 12 : 10}" font-weight="bold" pointer-events="none">${isMe ? '★ ' : ''}${p.name}</text>`;
+    // 等级 + 领地数（下方）
+    html += `<text x="${x}" y="${y - HEX_SIZE + 5}" text-anchor="middle" fill="${pColor}" font-size="8" fill-opacity="0.6" pointer-events="none">Lv${p.level} ${p.territories}地</text>`;
+  }
+
+  // ===== 第5层：行军箭头 =====
+  if (state) {
+    for (const army of state.armies) {
+      if (army.status === 'marching' && army.march) {
+        const myCity = playerCities.find(c => c.id === myPlayerId);
+        if (myCity) {
+          const from = hexToPixel(myCity.q - centerQ, myCity.r - centerR);
+          const to = hexToPixel(army.march.targetQ - centerQ, army.march.targetR - centerR);
+          html += `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="var(--gold)" stroke-width="2.5" stroke-dasharray="6,3" marker-end="url(#arrow)" />`;
+        }
+      }
+    }
+  }
+
+  html += '</g>';
+  html += '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--gold)" /></marker></defs>';
+
+  svg.innerHTML = html;
+}
+
+// 地图交互
+const mapPanel = document.getElementById('map-panel');
+mapPanel.addEventListener('mousedown', (e) => { isDragging = true; dragStartX = e.clientX - mapOffsetX; dragStartY = e.clientY - mapOffsetY; });
+mapPanel.addEventListener('mousemove', (e) => { if (isDragging) { mapOffsetX = e.clientX - dragStartX; mapOffsetY = e.clientY - dragStartY; renderMap(); } });
+mapPanel.addEventListener('mouseup', () => isDragging = false);
+mapPanel.addEventListener('mouseleave', () => isDragging = false);
+mapPanel.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = mapPanel.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left - rect.width / 2;
+  const mouseY = e.clientY - rect.top - rect.height / 2;
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  const newScale = Math.max(0.2, Math.min(5, mapScale * delta));
+  // 以鼠标位置为中心缩放
+  mapOffsetX = mouseX - (mouseX - mapOffsetX) * (newScale / mapScale);
+  mapOffsetY = mouseY - (mouseY - mapOffsetY) * (newScale / mapScale);
+  mapScale = newScale;
+  renderMap();
+}, { passive: false });
+
+function zoomIn() { const f = 1.3; mapOffsetX *= f; mapOffsetY *= f; mapScale = Math.min(5, mapScale * f); renderMap(); }
+function zoomOut() { const f = 0.77; mapOffsetX *= f; mapOffsetY *= f; mapScale = Math.max(0.2, mapScale * f); renderMap(); }
+function resetMap() { mapOffsetX = 0; mapOffsetY = 0; mapScale = 0.6; renderMap(); }
+
+function showTip(evt, tileJson) {
+  const tile = JSON.parse(tileJson);
+  const tip = document.getElementById('map-tooltip');
+  const typeNames = { wood: '木材', stone: '石材', iron: '铁矿', grain: '粮食' };
+  const predNames = { advantage: '优势', balanced: '均势', danger: '危险' };
+  const rt = tile.resource_type || tile.type || '?';
+  const lv = tile.resource_level || tile.level || '?';
+  const q = tile.hex_q ?? tile.hexQ, r = tile.hex_r ?? tile.hexR, s = tile.hex_s ?? tile.hexS;
+  let html = `<b>${typeNames[rt] || rt} Lv${lv}</b><br>`;
+  html += `坐标: (${q}, ${r}, ${s})<br>`;
+  if (tile.owner_id) html += `主人: ${tile.owner_id}<br>`;
+  if (tile.guard_troops != null) html += `守军: ${tile.guard_troops}<br>`;
+  if (tile.distance != null) html += `距离: ${tile.distance}格<br>`;
+  if (tile.travel_seconds != null) html += `行军: ${tile.travel_seconds}秒<br>`;
+  const pred = tile.prediction;
+  if (pred) html += `预测: <b style="color:${pred === 'advantage' ? 'var(--green)' : pred === 'danger' ? 'var(--red)' : 'var(--orange)'}">${predNames[pred] || pred}</b>`;
+  tip.innerHTML = html;
+  tip.style.display = 'block';
+  tip.style.left = (evt.clientX - mapPanel.getBoundingClientRect().left + 12) + 'px';
+  tip.style.top = (evt.clientY - mapPanel.getBoundingClientRect().top - 10) + 'px';
+}
+function hideTip() { document.getElementById('map-tooltip').style.display = 'none'; }
+
+function focusPlayer(playerId) {
+  if (!state) return;
+  const p = state.leaderboard.find(e => e.playerId === playerId);
+  if (p?.city) {
+    const cq = (p.city.hexQ ?? p.city.hex_q) - (state?.leaderboard.find(e => e.playerId === myPlayerId)?.city?.hexQ ?? 0);
+    const cr = (p.city.hexR ?? p.city.hex_r) - (state?.leaderboard.find(e => e.playerId === myPlayerId)?.city?.hexR ?? 0);
+    const { x, y } = hexToPixel(cq, cr);
+    mapOffsetX = -x * mapScale;
+    mapOffsetY = -y * mapScale;
+    renderMap();
+  }
+}
+
+// ========== 决策卡片 ==========
+function addDecisionCard(entry) {
+  const list = document.getElementById('decision-list');
+  const d = entry.decision;
+  const actionClass = {
+    march: 'action-march', replenish: 'action-replenish', build: 'action-build',
+    gacha: 'action-gacha', wait: 'action-wait',
+  }[d.action] || 'action-default';
+  const actionNames = {
+    march: '行军', replenish: '补兵', build: '建造', gacha: '抽卡', wait: '等待',
+    market_convert: '交易', market_purchase: '购买', formation: '阵型',
+    upgrade_resource: '升级', respond_event: '事件',
+  };
+
+  const card = document.createElement('div');
+  card.className = 'decision-card';
+  card.innerHTML = `
+    <div class="decision-round">第 ${entry.round} 轮 | ${new Date(entry.timestamp).toLocaleTimeString('zh-CN')}</div>
+    <div class="decision-analysis">${d.analysis}</div>
+    <span class="decision-action ${actionClass}">${actionNames[d.action] || d.action}</span>
+    ${d.params ? `<span style="color:var(--text2);font-size:11px;margin-left:6px">${JSON.stringify(d.params)}</span>` : ''}
+    <div class="decision-reasoning">${d.reasoning}</div>
+  `;
+  list.prepend(card);
+  // 最多保留 50 条
+  while (list.children.length > 50) list.removeChild(list.lastChild);
+}
+
+// ========== 指令 ==========
+function renderDirectives(directives) {
+  const el = document.getElementById('directives');
+  if (!directives || directives.length === 0) {
+    el.classList.remove('has-items');
+    return;
+  }
+  el.classList.add('has-items');
+  el.innerHTML = directives.map((d, i) =>
+    `<span class="directive-tag">${d} <span class="remove" onclick="removeDirective(${i})">x</span></span>`
+  ).join('');
+}
+
+function removeDirective(index) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'remove_directive', index }));
+  }
+}
+
+// ========== 对话 ==========
+function addChatMessage(sender, text, cls) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = `chat-msg ${cls}`;
+  div.innerHTML = `<span class="sender">${sender}:</span> ${text}`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+  addChatMessage('主公', msg, 'user');
+  ws.send(JSON.stringify({ type: 'chat', message: msg }));
+  input.value = '';
+}
+
+document.getElementById('chat-send').addEventListener('click', sendChat);
+document.getElementById('chat-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendChat();
+});
+
+// ========== 底栏 ==========
+function renderBottomBar() {
+  if (!state) return;
+  const buildNames = {
+    warehouse: '仓库', army_camp: '兵营', barracks: '兵营',
+    training_ground: '校场', market: '市场', kings_palace: '君王殿',
+  };
+  const buildings = state.buildings.map(b =>
+    `<span class="building-item">${buildNames[b.type] || b.type} Lv${b.level}${b.isUpgrading ? '(升级中)' : ''}</span>`
+  ).join(' | ');
+  document.getElementById('buildings-info').innerHTML = buildings || '无建筑数据';
+
+  const typeCount = {};
+  for (const rp of state.ownedResourcePoints) {
+    const t = { wood: '木', stone: '石', iron: '铁', grain: '粮' }[rp.type] || rp.type;
+    if (!typeCount[t]) typeCount[t] = [];
+    typeCount[t].push(`Lv${rp.level}`);
+  }
+  const terrStr = Object.entries(typeCount).map(([t, lvs]) => `${t}:${lvs.join(',')}`).join(' ');
+  document.getElementById('territory-info').textContent =
+    `领地 ${state.ownedResourcePoints.length}/${state.resourcePointLimit} ${terrStr}`;
+}
+
+// ========== 启动 ==========
+connect();
+</script>
+</body>
+</html>

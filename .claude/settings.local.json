@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(lsof -ti:3000)",
+      "Bash(xargs kill:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s http://localhost:3000/api/state)",
+      "Bash(python3 -c ':*)",
+      "Bash(npx tsc:*)",
+      "WebFetch(domain:clislg.filo.ai)"
+    ]
+  }
+}
