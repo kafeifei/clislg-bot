@@ -2,12 +2,6 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "clislg-bot",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["tsx", "src/index.ts"],
-      "port": 3000
-    },
-    {
       "name": "clislg-web",
       "runtimeExecutable": "bash",
       "runtimeArgs": ["start-web.sh"],

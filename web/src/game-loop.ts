@@ -2,6 +2,7 @@ import { api, getPlayerId } from './api/client.js';
 import { executeDecision } from './api/actions.js';
 import { normalizeState, normalizeMap } from '../../src/core/api/state.js';
 import { makeDecision } from '../../src/core/brain/rules.js';
+import { observeAsync } from './brain/observer.js';
 import type { GameState, MapData, Decision, RawStateResponse, RawMapResponse, LeaderboardData } from '../../src/core/types.js';
 
 const LEADERBOARD_URL = 'https://clislg.filo.ai/api/leaderboard';
@@ -89,6 +90,14 @@ export async function gameLoopTick() {
           break;
         }
       }
+    }
+
+    // 模型观察（每 3 轮，异步不阻塞）
+    if (botRunning) {
+      const lastDecision = decisionHistory[decisionHistory.length - 1]?.decision ?? null;
+      observeAsync(state, map, lb, lastError, lastDecision, roundCount, (text) => {
+        emit('observation', { round: roundCount, text, timestamp: new Date().toISOString() });
+      });
     }
 
     // 自适应间隔

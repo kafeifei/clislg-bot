@@ -5,11 +5,9 @@
     "moduleResolution": "bundler",
     "strict": true,
     "esModuleInterop": true,
-    "outDir": "dist",
-    "rootDir": "src",
-    "declaration": true,
     "sourceMap": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "noEmit": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/core/**/*"]
 }

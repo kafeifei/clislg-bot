@@ -520,6 +520,15 @@ function addDecisionCard(round: number, decision: Decision) {
   while (list.children.length > 50) list.removeChild(list.lastChild!);
 }
 
+function addObservationCard(round: number, text: string) {
+  const list = $('decision-list');
+  const card = document.createElement('div');
+  card.className = 'observation-card';
+  card.innerHTML = `<div class="decision-round">💭 军师观察 · 第 ${round} 轮 | ${new Date().toLocaleTimeString('zh-CN')}</div><div class="observation-text">${escapeHtml(text)}</div>`;
+  list.prepend(card);
+  while (list.children.length > 50) list.removeChild(list.lastChild!);
+}
+
 // 手机 Tab 也需要渲染
 function renderMobileStatus(state: GameState) {
   const r = state.resources;
@@ -705,6 +714,9 @@ onEvent((event, data) => {
       mDec.prepend(card);
       while (mDec.children.length > 30) mDec.removeChild(mDec.lastChild!);
     }
+  } else if (event === 'observation') {
+    const { round, text } = data as { round: number; text: string };
+    addObservationCard(round, text);
   } else if (event === 'botStatus') {
     const running = data as boolean;
     const el = $('bot-status');
