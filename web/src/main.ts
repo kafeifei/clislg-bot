@@ -1,8 +1,30 @@
 import { storage } from './storage.js';
 import { login, register, logout, isLoggedIn } from './api/auth.js';
 import { api } from './api/client.js';
-import { onEvent, startBot, stopBot, toggleBot, fetchOnce, isRunning, addDirective, getDirectives, getRound } from './game-loop.js';
+import { onEvent, startBot, stopBot, toggleBot, fetchOnce, isRunning, addDirective, getDirectives, getRound, getState } from './game-loop.js';
+import { createAIProvider, resetProvider, WEBLLM_MODELS, getSelectedModel } from './brain/ai-provider.js';
+import { GAME_RULES } from '../../src/core/brain/game-rules.js';
 import type { GameState, MapData, Decision } from '../../src/core/types.js';
+import type { AIMessage } from './brain/ai-provider.js';
+
+// WebLLM 缓存管理
+let webllmModule: typeof import('@mlc-ai/web-llm') | null = null;
+async function getWebLLM() {
+  if (!webllmModule) webllmModule = await import('@mlc-ai/web-llm');
+  return webllmModule;
+}
+const modelCacheStatus = new Map<string, 'cached' | 'downloading' | 'none'>();
+async function refreshCacheStatus() {
+  try {
+    const wl = await getWebLLM();
+    await Promise.all(WEBLLM_MODELS.map(async m => {
+      const cached = await wl.hasModelInCache(m.id);
+      if (modelCacheStatus.get(m.id) !== 'downloading') {
+        modelCacheStatus.set(m.id, cached ? 'cached' : 'none');
+      }
+    }));
+  } catch { /* ignore */ }
+}
 
 // ===== DOM =====
 const $ = (id: string) => document.getElementById(id)!;
@@ -10,36 +32,45 @@ const hide = (el: HTMLElement) => el.classList.add('hidden');
 const show = (el: HTMLElement) => el.classList.remove('hidden');
 
 // ===== 设置向导 =====
-let selectedAI = storage.get('ai_provider') || 'none';
+let selectedAI = storage.get('ai_provider') || 'webllm';
 
 const aiOptions = [
-  { id: 'none', name: '不使用 AI', desc: '纯规则引擎' },
-  { id: 'google', name: 'Google Gemini', desc: '免费额度大' },
-  { id: 'openai', name: 'OpenAI GPT', desc: '需要 API Key' },
-  { id: 'anthropic', name: 'Anthropic Claude', desc: '需要 API Key' },
-  { id: 'webllm', name: '浏览器本地', desc: 'WebLLM (慢)' },
+  { id: 'webllm', name: '浏览器本地 AI', desc: '无需 Key，即开即用', primary: true },
+  { id: 'google', name: 'Google Gemini', desc: '免费额度大', primary: false },
+  { id: 'openai', name: 'OpenAI GPT', desc: '需要 API Key', primary: false },
+  { id: 'anthropic', name: 'Anthropic Claude', desc: '需要 API Key', primary: false },
+  { id: 'none', name: '不使用 AI', desc: '纯规则引擎', primary: false },
 ];
 
 function renderSetup() {
   const container = $('ai-options');
   container.innerHTML = aiOptions.map(o =>
-    `<div class="option ${o.id === selectedAI ? 'selected' : ''}" data-provider="${o.id}">
+    `<div class="option ${o.id === selectedAI ? 'selected' : ''} ${o.primary ? 'option-primary' : 'option-secondary'}" data-provider="${o.id}">
       <div class="name">${o.name}</div><div class="desc">${o.desc}</div>
     </div>`
   ).join('');
+  // 默认选 webllm 时展开模型列表
+  if (selectedAI === 'webllm') {
+    show($('webllm-model-section'));
+    renderWebLLMModelList();
+  }
   container.querySelectorAll('.option').forEach(el => {
     el.addEventListener('click', () => {
       selectedAI = (el as HTMLElement).dataset.provider!;
       container.querySelectorAll('.option').forEach(e => e.classList.remove('selected'));
       el.classList.add('selected');
       const keySection = $('api-key-section');
+      const modelSection = $('webllm-model-section');
       if (['openai', 'anthropic', 'google'].includes(selectedAI)) {
-        show(keySection);
+        show(keySection); hide(modelSection);
         const labels: Record<string, string> = { openai: 'OpenAI API Key', anthropic: 'Anthropic API Key', google: 'Google AI API Key' };
         const ph: Record<string, string> = { openai: 'sk-...', anthropic: 'sk-ant-...', google: 'AIza...' };
         $('api-key-label').textContent = labels[selectedAI];
         ($('api-key-input') as HTMLInputElement).placeholder = ph[selectedAI];
-      } else { hide(keySection); }
+      } else if (selectedAI === 'webllm') {
+        hide(keySection); show(modelSection);
+        renderWebLLMModelList();
+      } else { hide(keySection); hide(modelSection); }
     });
   });
 }
@@ -48,34 +79,234 @@ $('setup-next').addEventListener('click', () => {
   storage.set('ai_provider', selectedAI);
   const key = ($('api-key-input') as HTMLInputElement).value.trim();
   if (key) storage.set('ai_key', key);
-  hide($('setup-overlay')); show($('login-overlay'));
+  resetProvider();
+  if (isLoggedIn()) enterGame();
+  else { hide($('setup-overlay')); show($('login-overlay')); }
 });
 $('setup-skip').addEventListener('click', () => {
-  storage.set('ai_provider', 'none');
-  hide($('setup-overlay')); show($('login-overlay'));
+  // 已登录时跳过不改配置，首次跳过设为 none
+  if (!isLoggedIn()) storage.set('ai_provider', 'none');
+  else if (!storage.get('ai_provider')) storage.set('ai_provider', 'none');
+  resetProvider();
+  if (isLoggedIn()) enterGame();
+  else { hide($('setup-overlay')); show($('login-overlay')); }
 });
 
-// ===== 登录 =====
+// WebLLM 模型列表（设置向导）
+let selectedWebLLMModel = storage.get('webllm_model') || 'Qwen3-1.7B-q4f16_1-MLC';
+
+function buildModelListHTML(currentId: string, showCacheActions: boolean) {
+  const groups: Record<string, typeof WEBLLM_MODELS> = {};
+  for (const m of WEBLLM_MODELS) {
+    if (!groups[m.group]) groups[m.group] = [];
+    groups[m.group].push(m);
+  }
+  let html = '';
+  for (const [group, models] of Object.entries(groups)) {
+    html += `<div class="popup-group-label">${group}</div>`;
+    for (const m of models) {
+      const starColors = ['', '#ef4444', '#ef4444', '#facc15', '#4ade80', '#4ade80'];
+      const starColor = starColors[m.zhLevel];
+      const stars = '<span style="color:' + starColor + '">' + '\u2605'.repeat(m.zhLevel) + '</span>' +
+                    '<span style="color:#333">' + '\u2605'.repeat(5 - m.zhLevel) + '</span>';
+      const thinkMap: Record<string, string> = {
+        deep: '<span class="pm-think think-deep">深度</span>',
+        think: '<span class="pm-think think-normal">思考</span>',
+        none: '<span class="pm-think think-none">思考</span>',
+      };
+      const cache = modelCacheStatus.get(m.id);
+      let cacheHTML = '';
+      if (showCacheActions) {
+        const cls = !cache ? 'pm-tick-unknown' : cache === 'cached' ? 'pm-tick-cached' : cache === 'downloading' ? 'pm-tick-downloading' : 'pm-tick-none';
+        cacheHTML = `<span class="pm-tick ${cls}" data-tick="${m.id}">✓</span>`;
+      }
+      html += `<div class="popup-model ${m.id === currentId ? 'selected' : ''}" data-model="${m.id}">
+        <span class="pm-name">${m.label}</span>
+        <span class="pm-stars">${stars}</span>
+        ${thinkMap[m.thinkType]}
+        <span class="pm-size">${m.size}</span>
+        ${cacheHTML}
+      </div>`;
+    }
+  }
+  return html;
+}
+
+function renderWebLLMModelList() {
+  const container = $('webllm-model-list');
+  container.innerHTML = buildModelListHTML(selectedWebLLMModel, false);
+  container.querySelectorAll('.popup-model').forEach(el => {
+    el.addEventListener('click', () => {
+      selectedWebLLMModel = (el as HTMLElement).dataset.model!;
+      storage.set('webllm_model', selectedWebLLMModel);
+      container.querySelectorAll('.popup-model').forEach(e => e.classList.remove('selected'));
+      el.classList.add('selected');
+    });
+  });
+}
+
+// 聊天工具栏（模型选择 + 思考开关）
+let thinkingEnabled = storage.get('ai_thinking') === 'true';
+
+function initChatToolbar() {
+  const btn = $('chat-model-btn');
+  show(btn);
+
+  const popup = $('chat-model-popup');
+  btn.textContent = '\u{1F9E0}';
+
+  // 渲染模型列表
+  renderModelPopup();
+
+  // 点击按钮弹出/关闭
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    popup.classList.toggle('hidden');
+    if (!popup.classList.contains('hidden')) {
+      refreshCacheStatus().then(updateTickStyles);
+    }
+  });
+  document.addEventListener('click', () => popup.classList.add('hidden'));
+  popup.addEventListener('click', (e) => e.stopPropagation());
+
+  // 思考开关
+  const thinkCheck = $('chat-think-check') as HTMLInputElement;
+  thinkCheck.checked = thinkingEnabled;
+  updateThinkUI();
+
+  thinkCheck.addEventListener('change', () => {
+    thinkingEnabled = thinkCheck.checked;
+    storage.set('ai_thinking', thinkingEnabled ? 'true' : 'false');
+  });
+
+  // 配置入口
+  $('popup-config-btn').addEventListener('click', () => {
+    popup.classList.add('hidden');
+    stopBot();
+    hide($('app'));
+    show($('setup-overlay'));
+    renderSetup();
+  });
+}
+
+function renderModelPopup() {
+  const list = $('chat-model-popup-list');
+  const currentId = storage.get('webllm_model') || 'Qwen3-1.7B-q4f16_1-MLC';
+
+  // 渲染一次，不再重建
+  list.innerHTML = buildModelListHTML(currentId, true);
+  bindModelPopupEvents();
+
+  // 异步刷新缓存状态，只更新小钩样式
+  refreshCacheStatus().then(updateTickStyles);
+}
+
+function updateTickStyles() {
+  const list = $('chat-model-popup-list');
+  list.querySelectorAll<HTMLElement>('.pm-tick').forEach(el => {
+    const id = el.dataset.tick!;
+    const cache = modelCacheStatus.get(id);
+    el.className = 'pm-tick ' + (!cache ? 'pm-tick-unknown' : cache === 'cached' ? 'pm-tick-cached' : cache === 'downloading' ? 'pm-tick-downloading' : 'pm-tick-none');
+  });
+}
+
+function bindModelPopupEvents() {
+  const list = $('chat-model-popup-list');
+
+  // 选择模型
+  list.querySelectorAll('.popup-model').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.pm-tick')) return;
+      const id = (el as HTMLElement).dataset.model!;
+      storage.set('webllm_model', id);
+      storage.set('ai_provider', 'webllm');
+      resetProvider();
+      list.querySelectorAll('.popup-model').forEach(e => e.classList.remove('selected'));
+      el.classList.add('selected');
+      updateThinkUI();
+      $('chat-model-popup').classList.add('hidden');
+    });
+  });
+
+  // 小钩点击
+  list.querySelectorAll<HTMLElement>('.pm-tick').forEach(el => {
+    el.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const modelId = el.dataset.tick!;
+      const cache = modelCacheStatus.get(modelId);
+
+      if (!cache) return; // 未知状态，不可点
+
+      if (cache === 'cached') {
+        // 绿色 → 确认删除
+        if (!confirm('删除已下载的模型缓存？')) return;
+        try {
+          const wl = await getWebLLM();
+          await wl.deleteModelAllInfoInCache(modelId);
+          modelCacheStatus.set(modelId, 'none');
+        } catch { /* ignore */ }
+        updateTickStyles();
+      } else if (cache === 'none') {
+        // 白色 → 选中模型 + 切换到 webllm + 关闭弹窗 + 发消息触发下载
+        storage.set('webllm_model', modelId);
+        storage.set('ai_provider', 'webllm');
+        resetProvider();
+        list.querySelectorAll('.popup-model').forEach(e => e.classList.remove('selected'));
+        list.querySelector(`.popup-model[data-model="${modelId}"]`)?.classList.add('selected');
+        updateThinkUI();
+        $('chat-model-popup').classList.add('hidden');
+        // 自动发一条消息触发下载
+        const input = $('chat-input') as HTMLInputElement;
+        input.value = '军师何在？';
+        $('chat-send').click();
+      }
+    });
+  });
+}
+
+function updateThinkUI() {
+  const model = getSelectedModel();
+  const thinkCheck = $('chat-think-check') as HTMLInputElement;
+  const hint = $('chat-think-hint');
+  if (model.thinkType !== 'none') {
+    thinkCheck.disabled = false;
+    hint.textContent = '模型先推理再回答，更准但更慢';
+  } else {
+    thinkCheck.disabled = true;
+    thinkCheck.checked = false;
+    thinkingEnabled = false;
+    hint.textContent = '该模型不支持思考';
+  }
+}
+
+// ===== 登录（自动注册）=====
 async function handleLogin() {
   const user = ($('login-user') as HTMLInputElement).value.trim();
   const pass = ($('login-pass') as HTMLInputElement).value.trim();
   if (!user || !pass) return showError('请输入用户名和密码');
+  const btn = $('login-btn') as HTMLButtonElement;
+  btn.disabled = true; btn.textContent = '登录中...';
   try {
-    const d = await login(user, pass);
-    if (d.token) enterGame();
-    else showError(d.error || d.message || '登录失败');
+    let d = await login(user, pass);
+    if (!d.token) {
+      // 登录失败，尝试注册
+      btn.textContent = '创建势力...';
+      d = await register(user, pass);
+      if (d.token) await api('POST', '/join-season').catch(() => {});
+    }
+    if (d.token) {
+      // 已配置过 AI 则直接进游戏，否则显示设置向导
+      if (storage.get('ai_provider')) {
+        enterGame();
+      } else {
+        hide($('login-overlay'));
+        show($('setup-overlay'));
+      }
+    } else {
+      showError(d.error || d.message || '登录失败');
+    }
   } catch { showError('网络错误'); }
-}
-
-async function handleRegister() {
-  const user = ($('login-user') as HTMLInputElement).value.trim();
-  const pass = ($('login-pass') as HTMLInputElement).value.trim();
-  if (!user || !pass) return showError('请输入用户名和密码');
-  try {
-    const d = await register(user, pass);
-    if (d.token) { await api('POST', '/join-season').catch(() => {}); enterGame(); }
-    else showError(d.error || d.message || '注册失败');
-  } catch { showError('网络错误'); }
+  btn.disabled = false; btn.textContent = '进入战场';
 }
 
 function showError(msg: string) {
@@ -83,16 +314,22 @@ function showError(msg: string) {
 }
 
 $('login-btn').addEventListener('click', handleLogin);
-$('register-btn').addEventListener('click', handleRegister);
 $('login-pass').addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') handleLogin(); });
 
 function enterGame() {
   hide($('setup-overlay')); hide($('login-overlay')); show($('app'));
-  fetchOnce();
+  // 自愈：有模型选择但 provider 不对，自动修正
+  if (storage.get('webllm_model') && storage.get('ai_provider') !== 'webllm') {
+    storage.set('ai_provider', 'webllm');
+    resetProvider();
+  }
+  refreshCacheStatus(); // 预加载缓存状态
+  initChatToolbar();
+  startBot();
 }
 
 // ===== 登出 =====
-$('logout-btn').addEventListener('click', () => { stopBot(); logout(); hide($('app')); show($('login-overlay')); });
+$('logout-btn').addEventListener('click', () => { stopBot(); logout(); hide($('app')); hide($('setup-overlay')); show($('login-overlay')); });
 
 // ===== Bot 控制 =====
 $('bot-toggle').addEventListener('click', toggleBot);
@@ -256,10 +493,26 @@ function renderBottomBar(state: GameState) {
   $('territory-info').textContent = `领地 ${state.ownedResourcePoints.length}/${state.resourcePointLimit}`;
 }
 
+let lastDecisionKey = '';
+let lastDecisionCount = 0;
+
 function addDecisionCard(round: number, decision: Decision) {
   const list = $('decision-list');
   const actionClass: Record<string, string> = { march:'action-march', replenish:'action-replenish', build:'action-build', gacha:'action-gacha', wait:'action-wait', develop:'action-march', upgrade_resource:'action-build' };
   const actionNames: Record<string, string> = { march:'行军', replenish:'补兵', build:'建造', gacha:'抽卡', wait:'等待', develop:'开发', upgrade_resource:'升级', abandon:'放弃', assign_generals:'分配', market_purchase:'购买' };
+
+  // 合并连续相同的等待决策
+  const key = `${decision.action}:${decision.analysis}`;
+  if (decision.action === 'wait' && key === lastDecisionKey && list.firstChild) {
+    lastDecisionCount++;
+    const existing = list.firstChild as HTMLElement;
+    const roundEl = existing.querySelector('.decision-round');
+    if (roundEl) roundEl.textContent = `第 ${round} 轮 | ${new Date().toLocaleTimeString('zh-CN')} (×${lastDecisionCount})`;
+    return;
+  }
+  lastDecisionKey = key;
+  lastDecisionCount = 1;
+
   const card = document.createElement('div');
   card.className = 'decision-card';
   card.innerHTML = `<div class="decision-round">第 ${round} 轮 | ${new Date().toLocaleTimeString('zh-CN')}</div><div class="decision-analysis">${decision.analysis}</div><span class="decision-action ${actionClass[decision.action]||'action-default'}">${actionNames[decision.action]||decision.action}</span><div class="decision-reasoning">${decision.reasoning}</div>`;
@@ -309,23 +562,107 @@ function renderMobileSettings() {
 $('chat-send').addEventListener('click', sendChat);
 $('chat-input').addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') sendChat(); });
 
-function sendChat() {
+const chatHistory: AIMessage[] = [];
+
+async function sendChat() {
   const input = $('chat-input') as HTMLInputElement;
   const msg = input.value.trim();
   if (!msg) return;
+  input.value = '';
   addChatMsg('主公', msg, 'user');
   addDirective(msg);
-  addChatMsg('军师', `遵命。已记录指令: "${msg}"`, 'bot');
-  input.value = '';
+
+  const provider = createAIProvider();
+  if (provider.name === '无 AI') {
+    addChatMsg('军师', `已记录指令。点击左侧 🧠 选择 AI 模型后可与军师对话。`, 'bot');
+    return;
+  }
+
+  // 构建上下文
+  const state = getState();
+  let stateDesc = '';
+  if (state) {
+    const r = state.resources;
+    const army = state.armies[0];
+    const stam = army ? (typeof army.raw?.stamina === 'number' ? army.raw.stamina : state.stamina) : 0;
+    stateDesc = `\n当前状态: 领主Lv${state.lordLevel} ${state.cityName} | 木${r.wood} 石${r.stone} 铁${r.iron} 粮${r.grain} 铜${r.copper} | 兵${army?.totalTroops||0}/${army?.totalTroopCap||0} 体力${stam} | 领地${state.ownedResourcePoints.length}/${state.resourcePointLimit} | 军队状态:${army?.status||'无'}`;
+  }
+
+  if (chatHistory.length === 0) {
+    chatHistory.push({ role: 'system', content: GAME_RULES + '\n你是这个游戏的 AI 军师，用简洁的中文回答。' + stateDesc });
+  } else {
+    // 更新 system 里的状态
+    chatHistory[0].content = GAME_RULES + '\n你是这个游戏的 AI 军师，用简洁的中文回答。' + stateDesc;
+  }
+  chatHistory.push({ role: 'user', content: msg });
+
+  // 显示加载
+  const loadingId = addChatMsg('军师', '思考中...', 'bot loading');
+
+  try {
+    // WebLLM 需要先加载
+    if ('ensureLoaded' in provider) {
+      const webllm = provider as { ensureLoaded(): Promise<void>; getStatus(): string };
+      const statusEl = document.getElementById(loadingId);
+      const updateStatus = () => {
+        if (statusEl) {
+          const s = webllm.getStatus();
+          statusEl.querySelector('.msg-text')!.textContent = s;
+        }
+      };
+      const interval = setInterval(updateStatus, 500);
+      await webllm.ensureLoaded();
+      clearInterval(interval);
+      if (statusEl) statusEl.querySelector('.msg-text')!.textContent = '思考中...';
+    }
+
+    const result = await provider.chat(chatHistory, thinkingEnabled);
+    chatHistory.push({ role: 'assistant', content: result.reply });
+    // 限制历史长度
+    while (chatHistory.length > 20) chatHistory.splice(1, 2);
+    // 显示思考 + 回复
+    let html = '';
+    if (result.think) {
+      html += `<div class="think-block">💭 ${escapeHtml(result.think)}</div>`;
+    }
+    html += escapeHtml(result.reply);
+    updateChatMsgHtml(loadingId, html, 'bot');
+  } catch (e) {
+    updateChatMsg(loadingId, `错误: ${(e as Error).message}`, 'bot error');
+  }
 }
 
-function addChatMsg(sender: string, text: string, cls: string) {
+let chatMsgId = 0;
+function addChatMsg(sender: string, text: string, cls: string): string {
+  const id = `chat-msg-${++chatMsgId}`;
   const container = $('chat-messages');
   const div = document.createElement('div');
+  div.id = id;
   div.className = 'chat-msg ' + cls;
-  div.innerHTML = `<span class="sender">${sender}:</span> ${text}`;
+  div.innerHTML = `<span class="sender">${sender}:</span> <span class="msg-text">${text}</span>`;
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+  return id;
+}
+
+function updateChatMsg(id: string, text: string, cls: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'chat-msg ' + cls;
+  const msgText = el.querySelector('.msg-text');
+  if (msgText) msgText.textContent = text;
+}
+
+function updateChatMsgHtml(id: string, html: string, cls: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'chat-msg ' + cls;
+  const msgText = el.querySelector('.msg-text');
+  if (msgText) msgText.innerHTML = html;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ===== Tab 栏 =====
@@ -380,8 +717,10 @@ onEvent((event, data) => {
 
 // ===== 初始化 =====
 renderSetup();
-if (storage.get('ai_provider')) {
+if (isLoggedIn()) {
+  hide($('login-overlay'));
+  enterGame();
+} else {
+  show($('login-overlay'));
   hide($('setup-overlay'));
-  if (isLoggedIn()) enterGame();
-  else show($('login-overlay'));
 }

@@ -10,40 +10,43 @@
 </head>
 <body>
 
-<!-- 设置向导 -->
-<div id="setup-overlay" class="overlay">
+<!-- 登录 -->
+<div id="login-overlay" class="overlay">
   <div class="card">
     <div class="step-indicator"><div class="step active"></div><div class="step"></div></div>
     <h1>CLISLG 助手</h1>
     <h2>"知己知彼，百战不殆"</h2>
-    <p class="hint">选择 AI 军师引擎（可选，不影响自动游戏）</p>
+    <label>势力名（用户名）</label>
+    <input id="login-user" placeholder="输入你的势力名" autocomplete="username" />
+    <label>密码</label>
+    <input id="login-pass" type="password" placeholder="输入密码" autocomplete="current-password" />
+    <p class="hint">新用户自动创建势力</p>
+    <div class="error hidden" id="login-error"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="login-btn">进入战场</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置向导 -->
+<div id="setup-overlay" class="overlay hidden">
+  <div class="card">
+    <div class="step-indicator"><div class="step"></div><div class="step active"></div></div>
+    <h1>选择军师</h1>
+    <p class="hint">选择 AI 引擎（可选，不影响自动游戏）</p>
     <div class="options" id="ai-options"></div>
     <div id="api-key-section" class="hidden">
       <label id="api-key-label">API Key</label>
       <input id="api-key-input" type="password" placeholder="sk-..." />
       <p class="hint">Key 仅存在你的浏览器本地，不会发送到第三方</p>
     </div>
-    <div class="btn-row">
-      <button class="btn btn-primary" id="setup-next">下一步</button>
-      <button class="btn btn-secondary" id="setup-skip">跳过</button>
+    <div id="webllm-model-section" class="hidden">
+      <label>选择本地模型</label>
+      <div id="webllm-model-list" class="model-list"></div>
     </div>
-  </div>
-</div>
-
-<!-- 登录注册 -->
-<div id="login-overlay" class="overlay hidden">
-  <div class="card">
-    <div class="step-indicator"><div class="step"></div><div class="step active"></div></div>
-    <h1>进入战场</h1>
-    <h2>登录已有账号或创建新势力</h2>
-    <label>势力名（用户名）</label>
-    <input id="login-user" placeholder="输入你的势力名" autocomplete="username" />
-    <label>密码</label>
-    <input id="login-pass" type="password" placeholder="输入密码" autocomplete="current-password" />
-    <div class="error hidden" id="login-error"></div>
     <div class="btn-row">
-      <button class="btn btn-primary" id="login-btn">登录</button>
-      <button class="btn btn-secondary" id="register-btn">注册新势力</button>
+      <button class="btn btn-primary" id="setup-next">完成</button>
+      <button class="btn btn-secondary" id="setup-skip">跳过</button>
     </div>
   </div>
 </div>
@@ -89,6 +92,15 @@
       <div id="chat-panel">
         <div id="chat-messages"></div>
         <div id="chat-input-area">
+          <button id="chat-model-btn" class="hidden" title="切换模型"></button>
+          <div id="chat-model-popup" class="hidden">
+            <div id="chat-model-popup-list"></div>
+            <div class="popup-divider"></div>
+            <label class="popup-row"><input type="checkbox" id="chat-think-check" /> 思考模式</label>
+            <div id="chat-think-hint" class="popup-hint"></div>
+            <div class="popup-divider"></div>
+            <div class="popup-row popup-config-link" id="popup-config-btn">⚙ AI 配置</div>
+          </div>
           <input id="chat-input" placeholder="下达指令..." />
           <button id="chat-send">发送</button>
         </div>

@@ -8,7 +8,10 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "vite": "^6.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "^0.2.82"
   }
 }

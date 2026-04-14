@@ -23,7 +23,8 @@ export function routineDecision(state: GameState, army: Army | undefined, map: M
     if (state.reserveTroops > 0) {
       return { analysis: `兵力${army.totalTroops}/${army.totalTroopCap}，补充(预备兵${state.reserveTroops})`, action: 'replenish', params: { armySlot: army.raw?.slot }, reasoning: '补兵不耗体力，优先补满' };
     }
-    if (r.copper >= 100) {
+    const marketBuilt = state.buildings.some(b => b.type === 'market' && b.level > 0);
+    if (r.copper >= 100 && marketBuilt) {
       return { analysis: '预备兵耗尽，购买', action: 'market_purchase', params: { item: 'reserve_troops' }, reasoning: '买预备兵' };
     }
   }
