@@ -222,9 +222,80 @@ export function makeDecision(state: GameState, map: MapData | undefined, ctx: Ru
   const army = selectBestArmy(state.armies);
   const routine = routineDecision(state, army, map, ctx);
   if (routine) return routine;
-  return waitDec('无可用操作');
+  return waitDec(diagnoseStuck(state, army, map));
 }
 
 export function waitDec(reason: string): Decision {
   return { analysis: reason, action: 'wait', params: { reason }, reasoning: '等待' };
+}
+
+/**
+ * 诊断卡死/等待原因——通用工具，普适于任何账号任何阶段
+ * 输出格式："瓶颈1｜瓶颈2｜瓶颈3"，每个瓶颈带具体数字
+ *
+ * 设计原则：
+ * - 不做"只为某账号"的特判
+ * - 只读 state，不写
+ * - 失败优雅（任何字段缺失都退化成"无可用操作"）
+ */
+export function diagnoseStuck(state: GameState, army: Army | undefined, map: MapData | undefined): string {
+  const reasons: string[] = [];
+  const r = state.resources;
+
+  // 1. 将领/军队
+  const aliveGen = state.generals.filter(g => !g.isDead).length;
+  const assignedIds = new Set(state.armies.flatMap(a => a.generals.map(g => g.id)));
+  const unassigned = state.generals.filter(g => !g.isDead && !assignedIds.has(g.id)).length;
+  if (army) {
+    if (army.totalTroopCap === 0) {
+      // 军队没将领
+      if (aliveGen < 3) {
+        reasons.push(`军队空(活将${aliveGen}/3，需抽卡)`);
+      } else if (unassigned >= 3) {
+        reasons.push(`军队空(${unassigned}将待编)`);
+      } else {
+        reasons.push(`军队空(将分散)`);
+      }
+    } else if (army.status !== 'idle') {
+      reasons.push(`军队${army.status}`);
+    }
+  }
+
+  // 2. 体力
+  const stam = (typeof army?.raw?.stamina === 'number' ? army.raw.stamina : state.stamina);
+  if (stam < 10) reasons.push(`体力${stam}/200`);
+
+  // 3. 建筑全卡——读 cityBuildings.details.upgrade_block_reason 算最小资源缺口
+  type BlockReason = { wood?: number; stone?: number; iron?: number; copper?: number; grain?: number };
+  type CB = { details?: Array<{ building_type: string; current_level: number; upgrade_block_reason?: BlockReason; can_upgrade_now?: boolean }> };
+  const cb = (state.raw as unknown as Record<string, unknown>).cityBuildings as CB | null;
+  const blocks = (cb?.details || []).filter(d => d.can_upgrade_now === false && d.upgrade_block_reason);
+  const anyBuildable = state.buildings.some(b => b.canUpgrade === true);
+  if (!anyBuildable && blocks.length > 0) {
+    // 找最便宜的卡点
+    const minNeed: Record<string, number> = {};
+    for (const k of ['wood', 'stone', 'iron'] as const) {
+      const positives = blocks.map(b => b.upgrade_block_reason![k] || 0).filter(x => x > 0);
+      if (positives.length > 0) minNeed[k] = Math.min(...positives);
+    }
+    const short = Object.entries(minNeed)
+      .filter(([k, v]) => v > ((r as unknown as Record<string, number>)[k] || 0))
+      .map(([k, v]) => `${k}${(r as unknown as Record<string, number>)[k]}/${v}`);
+    if (short.length > 0) reasons.push(`建筑卡(差${short.join(' ')})`);
+  }
+
+  // 4. 抽卡
+  if (state.gachaState.freePulls === 0 && state.gachaState.goldBalance < 40) {
+    reasons.push(`抽卡差${40 - state.gachaState.goldBalance}gold`);
+  }
+
+  // 5. 扩张
+  if (map && state.ownedResourcePoints.length < state.resourcePointLimit) {
+    const valid = (map.recommendedTargets || []).filter(t => t.recommendation !== 'skip' && t.prediction !== 'danger').length;
+    const totalNeutral = (map.resourcePoints || []).filter(p => !p.owner_id).length;
+    if (valid === 0 && totalNeutral === 0) reasons.push(`周围无中立地`);
+    else if (valid === 0) reasons.push(`无推荐目标(${totalNeutral}邻)`);
+  }
+
+  return reasons.length ? reasons.join('｜') : '无可用操作';
 }
