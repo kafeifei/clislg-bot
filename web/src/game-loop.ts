@@ -1,9 +1,9 @@
 import { api, getPlayerId } from './api/client.js';
 import { executeDecision } from './api/actions.js';
-import { normalizeState, normalizeMap } from '../../src/core/api/state.js';
-import { makeDecision, failKey } from '../../src/core/brain/rules.js';
+import { normalizeState, normalizeMap } from './core/api/state.js';
+import { makeDecision, failKey } from './core/brain/rules.js';
 import { observeAsync } from './brain/observer.js';
-import type { GameState, MapData, Decision, RawStateResponse, RawMapResponse, LeaderboardData } from '../../src/core/types.js';
+import type { GameState, MapData, Decision, RawStateResponse, RawMapResponse, LeaderboardData } from './core/types.js';
 
 const LEADERBOARD_URL = 'https://clislg.filo.ai/api/leaderboard';
 const INSTANT_ACTIONS = ['upgrade_resource', 'replenish', 'gacha', 'abandon', 'build', 'market_purchase', 'assign_generals'];

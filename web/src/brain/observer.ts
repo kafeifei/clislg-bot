@@ -2,8 +2,8 @@
  * 模型观察者——每 3 轮让 AI 军师点评局势（纯展示，不影响决策）
  */
 import { createAIProvider } from './ai-provider.js';
-import { GAME_RULES } from '../../../src/core/brain/game-rules.js';
-import type { GameState, MapData, Decision, LeaderboardData } from '../../../src/core/types.js';
+import { GAME_RULES } from '../core/brain/game-rules.js';
+import type { GameState, MapData, Decision, LeaderboardData } from '../core/types.js';
 
 const recentActions: string[] = [];
 const MAX_RECENT = 15;

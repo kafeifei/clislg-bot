@@ -1,5 +1,5 @@
 import { api } from './client.js';
-import type { Decision } from '../../../src/core/types.js';
+import type { Decision } from '../core/types.js';
 
 export async function executeDecision(decision: Decision): Promise<unknown> {
   const p = decision.params || {};

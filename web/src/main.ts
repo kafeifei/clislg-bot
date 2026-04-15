@@ -3,8 +3,8 @@ import { login, register, logout, isLoggedIn } from './api/auth.js';
 import { api } from './api/client.js';
 import { onEvent, startBot, stopBot, toggleBot, fetchOnce, isRunning, addDirective, getDirectives, getRound, getState } from './game-loop.js';
 import { createAIProvider, resetProvider, WEBLLM_MODELS, getSelectedModel, getCloudModels, getCloudModelId, fetchLiveCloudModels } from './brain/ai-provider.js';
-import { GAME_RULES } from '../../src/core/brain/game-rules.js';
-import type { GameState, MapData, Decision } from '../../src/core/types.js';
+import { GAME_RULES } from './core/brain/game-rules.js';
+import type { GameState, MapData, Decision } from './core/types.js';
 import type { AIMessage } from './brain/ai-provider.js';
 
 // WebLLM 缓存管理
