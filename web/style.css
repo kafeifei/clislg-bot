@@ -94,6 +94,15 @@ body { background: var(--bg); color: var(--text); font-family: 'SF Mono','Cascad
 .decision-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px; }
 .observation-card { background: rgba(255, 215, 0, 0.04); border: 1px solid rgba(255, 215, 0, 0.25); border-left: 3px solid var(--gold); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; }
 .observation-text { font-size: 12px; color: var(--text); line-height: 1.5; white-space: pre-wrap; }
+.battle-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; }
+.battle-win { background: rgba(64, 200, 96, 0.08); border-left: 3px solid var(--green); }
+.battle-lose { background: rgba(232, 64, 64, 0.1); border-left: 3px solid var(--red); }
+.battle-detail { font-size: 11px; color: var(--text2); line-height: 1.4; margin-top: 3px; }
+.alert-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; }
+.alert-error { background: rgba(232, 64, 64, 0.12); border-left: 3px solid var(--red); }
+.alert-warning { background: rgba(255, 165, 0, 0.08); border-left: 3px solid orange; }
+.alert-info { background: rgba(100, 150, 255, 0.06); border-left: 3px solid #6496ff; }
+.alert-text { font-size: 12px; color: var(--text); line-height: 1.4; margin-top: 3px; }
 .decision-round { font-size: 10px; color: var(--text2); margin-bottom: 3px; }
 .decision-analysis { color: var(--gold); margin-bottom: 4px; line-height: 1.4; font-size: 12px; }
 .decision-action { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; }
@@ -132,6 +141,7 @@ body { background: var(--bg); color: var(--text); font-family: 'SF Mono','Cascad
 .popup-row input[type="checkbox"] { accent-color: var(--gold); }
 .popup-row input[type="checkbox"]:disabled { opacity: 0.3; }
 .popup-hint { font-size: 10px; color: var(--text2); padding: 0 8px 2px; }
+.popup-provider-header { font-size: 11px; color: var(--gold); padding: 4px 8px 6px; border-bottom: 1px solid var(--border); margin-bottom: 6px; font-weight: bold; }
 .popup-config-link { color: var(--text2); cursor: pointer; }
 .popup-config-link:hover { color: var(--gold); }
 .pm-tick { font-size: 12px; min-width: 16px; text-align: center; cursor: default; }

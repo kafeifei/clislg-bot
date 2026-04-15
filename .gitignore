@@ -3,3 +3,4 @@ dist/
 .env
 .DS_Store
 src/probe.ts
+.env.local

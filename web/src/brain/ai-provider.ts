@@ -41,6 +41,116 @@ export function getSelectedModel(): WebLLMModel {
   return WEBLLM_MODELS.find(m => m.id === id) || WEBLLM_MODELS[1];
 }
 
+// ===== 云端模型列表 =====
+export interface CloudModel { id: string; label: string; hint?: string }
+
+// 推荐模型（硬编码 fallback，按 2026 年 4 月最新） —— 实际列表会从 API 拉
+const OPENAI_RECOMMENDED: CloudModel[] = [
+  { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', hint: '推荐 · 便宜快速' },
+  { id: 'gpt-5.4', label: 'GPT-5.4', hint: '旗舰' },
+  { id: 'gpt-5.4-nano', label: 'GPT-5.4 nano', hint: '最便宜' },
+  { id: 'gpt-5.4-pro', label: 'GPT-5.4 pro', hint: '最强' },
+];
+const ANTHROPIC_RECOMMENDED: CloudModel[] = [
+  { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', hint: '推荐 · 最新' },
+  { id: 'claude-opus-4-1', label: 'Claude Opus 4.1', hint: '最强' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', hint: '快' },
+  { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+];
+const GOOGLE_RECOMMENDED: CloudModel[] = [
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: '推荐 · 免费额度' },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', hint: '旗舰' },
+  { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+];
+
+const RECOMMENDED: Record<string, CloudModel[]> = {
+  openai: OPENAI_RECOMMENDED,
+  anthropic: ANTHROPIC_RECOMMENDED,
+  google: GOOGLE_RECOMMENDED,
+};
+
+// 缓存的动态模型列表
+const liveModelsCache = new Map<string, CloudModel[]>();
+
+/**
+ * 从 provider API 拉真实可用的模型列表，失败则返回推荐列表
+ */
+export async function fetchLiveCloudModels(provider: string): Promise<CloudModel[]> {
+  if (liveModelsCache.has(provider)) return liveModelsCache.get(provider)!;
+
+  const key = storage.get('ai_key');
+  if (!key) return RECOMMENDED[provider] || [];
+
+  try {
+    if (provider === 'openai') {
+      const resp = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${key}` },
+      });
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      const data = await resp.json() as { data: { id: string }[] };
+      const ids = data.data.map(m => m.id);
+      const chatModels = ids.filter(id =>
+        /^gpt-5\.4/i.test(id) &&          // 只要 gpt-5.4 系列
+        !/(audio|whisper|tts|embed|dall|image|moderation|search|realtime|codex|chat-latest)/i.test(id) &&
+        !/^ft:/i.test(id) &&
+        !/\d{4}-\d{2}-\d{2}$/.test(id)
+      ).sort((a, b) => a.localeCompare(b));
+      const result = chatModels.map(id => ({ id, label: id }));
+      if (result.length) {
+        liveModelsCache.set(provider, result);
+        return result;
+      }
+    } else if (provider === 'anthropic') {
+      const resp = await fetch('https://api.anthropic.com/v1/models', {
+        headers: {
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+      });
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      const data = await resp.json() as { data: { id: string; display_name?: string }[] };
+      const result = data.data.map(m => ({ id: m.id, label: m.display_name || m.id }));
+      if (result.length) {
+        liveModelsCache.set(provider, result);
+        return result;
+      }
+    } else if (provider === 'google') {
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      const data = await resp.json() as { models: { name: string; displayName?: string; supportedGenerationMethods?: string[] }[] };
+      const result = data.models
+        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+        .map(m => ({
+          id: m.name.replace(/^models\//, ''),
+          label: m.displayName || m.name.replace(/^models\//, ''),
+        }));
+      if (result.length) {
+        liveModelsCache.set(provider, result);
+        return result;
+      }
+    }
+  } catch (e) {
+    console.warn(`拉取 ${provider} 模型列表失败:`, (e as Error).message);
+  }
+  return RECOMMENDED[provider] || [];
+}
+
+export function getCloudModels(provider: string): CloudModel[] {
+  // 同步版本，返回缓存或推荐
+  return liveModelsCache.get(provider) || RECOMMENDED[provider] || [];
+}
+export function getCloudModelId(provider: string): string {
+  const saved = storage.get(`${provider}_model`);
+  if (saved) return saved;
+  const list = getCloudModels(provider);
+  return list[0]?.id || '';
+}
+export function clearLiveModelsCache(provider?: string) {
+  if (provider) liveModelsCache.delete(provider);
+  else liveModelsCache.clear();
+}
+
 // ===== Google Gemini =====
 class GeminiProvider implements AIProvider {
   name = 'Google Gemini';
@@ -58,8 +168,9 @@ class GeminiProvider implements AIProvider {
       parts: [{ text: m.content }],
     }));
 
+    const model = getCloudModelId('google');
     const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -92,12 +203,23 @@ class OpenAIProxyProvider implements AIProvider {
     const key = storage.get('ai_key');
     if (!key) throw new Error('No OpenAI API key');
 
-    const resp = await fetch('/api/ai-proxy', {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'openai', model: 'gpt-4o-mini', messages, apiKey: key }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: getCloudModelId('openai'),
+        messages,
+        max_completion_tokens: 1024, // gpt-5+ 要求这个参数，旧模型也兼容
+      }),
     });
 
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`OpenAI ${resp.status}: ${err.slice(0, 200)}`);
+    }
     const data = await resp.json() as { choices?: { message?: { content?: string } }[]; error?: { message?: string } };
     if (data.error) throw new Error(data.error.message);
     return { reply: data.choices?.[0]?.message?.content || '' };
@@ -115,12 +237,30 @@ class AnthropicProxyProvider implements AIProvider {
     const key = storage.get('ai_key');
     if (!key) throw new Error('No Anthropic API key');
 
-    const resp = await fetch('/api/ai-proxy', {
+    // Anthropic 浏览器直连必须加此 header
+    const sysMsg = messages.find(m => m.role === 'system');
+    const chatMsgs = messages.filter(m => m.role !== 'system');
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'anthropic', model: 'claude-sonnet-4-20250514', messages, apiKey: key }),
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: getCloudModelId('anthropic'),
+        max_tokens: 1024,
+        system: sysMsg?.content,
+        messages: chatMsgs,
+      }),
     });
 
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error(`Anthropic ${resp.status}: ${err.slice(0, 200)}`);
+    }
     const data = await resp.json() as { content?: { text?: string }[]; error?: { message?: string } };
     if (data.error) throw new Error(data.error.message);
     return { reply: data.content?.[0]?.text || '' };
@@ -155,13 +295,25 @@ class WebLLMProvider implements AIProvider {
 
   private async _load(modelId: string): Promise<void> {
     this.loading = true;
-    this.status = '加载 WebLLM 引擎...';
+    this.status = '初始化 WebLLM...';
     try {
       const webllm = await import('@mlc-ai/web-llm');
-      this.status = `下载模型 ${modelId}...`;
+      const cached = await webllm.hasModelInCache(modelId).catch(() => false);
+      this.status = cached ? `加载已缓存模型...` : `首次下载模型（仅需一次）...`;
       const engine = await webllm.CreateMLCEngine(modelId, {
-        initProgressCallback: (report: { text: string }) => {
-          this.status = report.text;
+        initProgressCallback: (report: { text: string; progress?: number }) => {
+          // WebLLM 的 text 格式：
+          //   未缓存:    "Fetching param cache[x/y]: NMB fetched. N% completed"
+          //   已缓存载入: "Loading model from cache[x/y]" 或类似
+          const raw = report.text || '';
+          const isFetching = /fetching|downloading/i.test(raw);
+          const isLoading = /loading|caching/i.test(raw);
+          const prefix = isFetching ? '⬇ 下载中' : isLoading ? '⏳ 加载中' : '';
+          // 抽出百分比或片段计数
+          const pct = raw.match(/(\d+)%/);
+          const seg = raw.match(/\[(\d+)\/(\d+)\]/);
+          const detail = pct ? `${pct[1]}%` : seg ? `${seg[1]}/${seg[2]}` : raw.slice(0, 60);
+          this.status = prefix ? `${prefix} ${detail}` : raw.slice(0, 80);
         },
       });
       this.engine = engine;
@@ -220,8 +372,9 @@ let currentProvider: AIProvider | null = null;
 export function createAIProvider(): AIProvider {
   if (currentProvider) return currentProvider;
   let providerType = storage.get('ai_provider');
-  // 自愈：未选 provider 但有模型选择，自动切 webllm
-  if ((!providerType || providerType === 'none') && storage.get('webllm_model')) {
+  // 自愈：从未选过 provider 但选过 webllm 模型 → 默认 webllm
+  // 显式选了 'none'/'openai'/'anthropic'/'google' 就尊重用户选择
+  if (!providerType && storage.get('webllm_model')) {
     providerType = 'webllm';
     storage.set('ai_provider', 'webllm');
   }

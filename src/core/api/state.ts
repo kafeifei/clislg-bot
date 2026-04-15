@@ -30,15 +30,49 @@ export function normalizeState(raw: RawStateResponse): GameState {
     };
   });
 
+  // 优先用 cityBuildings.details（服务器权威：can_upgrade_now、level_cap、workshop slot 都有）
+  // 兜底才从 cities[0] 的扁平字段重构
   const buildings: Building[] = [];
-  if (city) {
+  const cityBuildings = (raw as unknown as Record<string, unknown>).cityBuildings as {
+    details?: Array<{
+      building_type: string; current_level: number; slot?: number;
+      can_upgrade_now?: boolean; prosperity?: number;
+    }>;
+  } | null;
+  const details = cityBuildings?.details;
+  if (details && details.length > 0) {
+    // workshop 类型在 details 里有多条（slot 1, slot 2），通过 slot 字段或顺序区分
+    const slotCounter: Record<string, number> = {};
+    for (const d of details) {
+      const t = d.building_type;
+      const isWorkshop = t.endsWith('_workshop');
+      let slot: number | undefined;
+      if (isWorkshop) {
+        slot = d.slot ?? ((slotCounter[t] = (slotCounter[t] || 0) + 1));
+      }
+      buildings.push({
+        type: t,
+        level: d.current_level,
+        slot,
+        canUpgrade: d.can_upgrade_now,
+        prosperity: d.prosperity,
+      });
+    }
+  } else if (city) {
     buildings.push({ type: 'warehouse', level: city.warehouse_level });
-    buildings.push({ type: 'barracks', level: city.barracks_level });
     buildings.push({ type: 'army_camp', level: city.army_camp_level });
     buildings.push({ type: 'training_ground', level: city.training_ground_level });
     buildings.push({ type: 'market', level: city.market_level });
     buildings.push({ type: 'residence', level: city.residence_level });
     buildings.push({ type: 'conscription_office', level: city.conscription_office_level });
+    // workshop 数组（可能为 [lv1, lv2]）
+    const wsTypes = ['wood_workshop', 'stone_workshop', 'iron_workshop', 'grain_workshop'] as const;
+    for (const wt of wsTypes) {
+      const arr = (city as unknown as Record<string, unknown>)[`${wt}_levels`] as number[] | undefined;
+      if (Array.isArray(arr)) {
+        arr.forEach((lv, i) => buildings.push({ type: wt, level: lv, slot: i + 1 }));
+      }
+    }
   }
 
   const leaderboard: LeaderboardEntry[] = (raw.leaderboard || []).map(e => ({
@@ -55,11 +89,23 @@ export function normalizeState(raw: RawStateResponse): GameState {
   const stamina = typeof armyStam === 'number' ? armyStam :
     (armyStam && typeof armyStam === 'object') ? (armyStam as Record<string, number>).current ?? ps.stamina : ps.stamina;
 
+  // 繁荣度：服务器 lordLevelProgress 是权威来源；fallback 到顶层 prosperity
+  const llp = (raw as unknown as Record<string, unknown>).lordLevelProgress as Record<string, unknown> | null;
+  const prosperity = (llp?.current_prosperity as number | undefined)
+    ?? (ps as Record<string, unknown>).prosperity as number | undefined
+    ?? (raw as unknown as Record<string, unknown>).prosperity as number | undefined
+    ?? 0;
+  // 下一级阈值：服务器字段名 next_level_prosperity（确认自探针账号）
+  const prosperityNext = llp?.is_max_level
+    ? undefined
+    : (llp?.next_level_prosperity as number | undefined);
+
   return {
     playerId: ps.player_id, lordLevel: ps.lord_level,
     lordName: city?.name || 'unknown', cityName: city?.name || 'unknown',
     province: city ? `${city.province} ${city.county}` : '',
-    prosperity: ps.prosperity,
+    prosperity,
+    prosperityNext,
     resources: { wood: ps.wood, stone: ps.stone, iron: ps.iron, grain: ps.grain, copper: ps.copper, gold: ps.gold },
     capacity: { wood: baseCap, stone: baseCap, iron: baseCap, grain: baseCap },
     production: { wood: 0, stone: 0, iron: 0, grain: 0 },

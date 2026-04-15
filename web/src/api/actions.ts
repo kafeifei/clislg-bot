@@ -16,8 +16,11 @@ export async function executeDecision(decision: Decision): Promise<unknown> {
       });
       return result;
     }
-    case 'build':
-      return api('POST', '/building/upgrade', { buildingType: p.buildingType });
+    case 'build': {
+      const body: Record<string, unknown> = { buildingType: p.buildingType };
+      if (p.slot != null) body.slot = p.slot;
+      return api('POST', '/building/upgrade', body);
+    }
     case 'abandon':
       return api('POST', '/resource/abandon', { resourcePointId: p.resourcePointId });
     case 'upgrade_resource':

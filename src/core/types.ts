@@ -195,6 +195,7 @@ export interface GameState {
   cityName: string;
   province: string;
   prosperity: number;
+  prosperityNext?: number;  // 下一级领主所需繁荣度（服务器或兜底）
   resources: {
     wood: number; stone: number; iron: number; grain: number;
     copper: number; gold: number;
@@ -266,6 +267,9 @@ export interface General {
 export interface Building {
   type: string;
   level: number;
+  slot?: number;       // 资源建筑（workshop）必填：1 或 2
+  canUpgrade?: boolean; // 服务器 can_upgrade_now
+  prosperity?: number;  // 当前等级贡献的繁荣度
 }
 
 export interface LeaderboardEntry {

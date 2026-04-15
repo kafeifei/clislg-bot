@@ -94,10 +94,13 @@
         <div id="chat-input-area">
           <button id="chat-model-btn" class="hidden" title="切换模型"></button>
           <div id="chat-model-popup" class="hidden">
+            <div id="popup-provider-header" class="popup-provider-header"></div>
             <div id="chat-model-popup-list"></div>
-            <div class="popup-divider"></div>
-            <label class="popup-row"><input type="checkbox" id="chat-think-check" /> 思考模式</label>
-            <div id="chat-think-hint" class="popup-hint"></div>
+            <div id="popup-webllm-controls">
+              <div class="popup-divider"></div>
+              <label class="popup-row"><input type="checkbox" id="chat-think-check" /> 思考模式</label>
+              <div id="chat-think-hint" class="popup-hint"></div>
+            </div>
             <div class="popup-divider"></div>
             <div class="popup-row popup-config-link" id="popup-config-btn">⚙ AI 配置</div>
           </div>
@@ -123,8 +126,7 @@
     <div id="m-leaderboard"></div>
   </div>
   <div id="tab-log" class="tab-content">
-    <div id="m-decisions"></div>
-    <div id="m-chat"></div>
+    <!-- #decisions 和 #chat-panel 在切到此 tab 时动态挂入 -->
   </div>
   <div id="tab-settings" class="tab-content">
     <div id="m-settings"></div>

@@ -2,7 +2,7 @@ import { storage } from './storage.js';
 import { login, register, logout, isLoggedIn } from './api/auth.js';
 import { api } from './api/client.js';
 import { onEvent, startBot, stopBot, toggleBot, fetchOnce, isRunning, addDirective, getDirectives, getRound, getState } from './game-loop.js';
-import { createAIProvider, resetProvider, WEBLLM_MODELS, getSelectedModel } from './brain/ai-provider.js';
+import { createAIProvider, resetProvider, WEBLLM_MODELS, getSelectedModel, getCloudModels, getCloudModelId, fetchLiveCloudModels } from './brain/ai-provider.js';
 import { GAME_RULES } from '../../src/core/brain/game-rules.js';
 import type { GameState, MapData, Decision } from '../../src/core/types.js';
 import type { AIMessage } from './brain/ai-provider.js';
@@ -148,9 +148,13 @@ function renderWebLLMModelList() {
 // 聊天工具栏（模型选择 + 思考开关）
 let thinkingEnabled = storage.get('ai_thinking') === 'true';
 
+let chatToolbarInited = false;
 function initChatToolbar() {
   const btn = $('chat-model-btn');
   show(btn);
+  refreshPopupForProvider();
+  if (chatToolbarInited) return;
+  chatToolbarInited = true;
 
   const popup = $('chat-model-popup');
   btn.textContent = '\u{1F9E0}';
@@ -163,7 +167,10 @@ function initChatToolbar() {
     e.stopPropagation();
     popup.classList.toggle('hidden');
     if (!popup.classList.contains('hidden')) {
-      refreshCacheStatus().then(updateTickStyles);
+      refreshPopupForProvider(); // 每次打开都根据当前 provider 重新渲染
+      if ((storage.get('ai_provider') || '') === 'webllm') {
+        refreshCacheStatus().then(updateTickStyles);
+      }
     }
   });
   document.addEventListener('click', () => popup.classList.add('hidden'));
@@ -187,6 +194,63 @@ function initChatToolbar() {
     show($('setup-overlay'));
     renderSetup();
   });
+}
+
+function refreshPopupForProvider() {
+  const provider = storage.get('ai_provider') || 'none';
+  const header = $('popup-provider-header');
+  const list = $('chat-model-popup-list');
+  const controls = $('popup-webllm-controls');
+
+  const names: Record<string, string> = {
+    webllm: '浏览器本地 AI',
+    google: 'Google Gemini',
+    openai: 'OpenAI GPT',
+    anthropic: 'Anthropic Claude',
+    none: '未配置 AI',
+  };
+  header.textContent = names[provider] || provider;
+
+  if (provider === 'webllm') {
+    show(list);
+    show(controls);
+    renderModelPopup();
+    updateThinkUI();
+  } else if (['openai', 'anthropic', 'google'].includes(provider)) {
+    show(list);
+    hide(controls);
+    renderCloudModelList(provider);
+  } else {
+    hide(list);
+    hide(controls);
+  }
+}
+
+function renderCloudModelList(provider: string) {
+  const list = $('chat-model-popup-list');
+  const render = () => {
+    const models = getCloudModels(provider);
+    const currentId = getCloudModelId(provider);
+    list.innerHTML = models.map(m => `
+      <div class="popup-model ${m.id === currentId ? 'selected' : ''}" data-cloud-model="${m.id}">
+        <span class="pm-name">${m.label}</span>
+        ${m.hint ? `<span class="pm-size">${m.hint}</span>` : ''}
+      </div>
+    `).join('');
+    list.querySelectorAll<HTMLElement>('.popup-model').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.cloudModel!;
+        storage.set(`${provider}_model`, id);
+        resetProvider();
+        list.querySelectorAll('.popup-model').forEach(e => e.classList.remove('selected'));
+        el.classList.add('selected');
+        $('chat-model-popup').classList.add('hidden');
+      });
+    });
+  };
+  render(); // 先用推荐/缓存立即渲染
+  // 异步拉真实列表
+  fetchLiveCloudModels(provider).then(() => render());
 }
 
 function renderModelPopup() {
@@ -318,8 +382,9 @@ $('login-pass').addEventListener('keydown', (e) => { if ((e as KeyboardEvent).ke
 
 function enterGame() {
   hide($('setup-overlay')); hide($('login-overlay')); show($('app'));
-  // 自愈：有模型选择但 provider 不对，自动修正
-  if (storage.get('webllm_model') && storage.get('ai_provider') !== 'webllm') {
+  // 自愈：从未配置但选过 webllm 模型 → 默认 webllm
+  // （不要覆盖用户显式选的 openai/anthropic/google/none）
+  if (!storage.get('ai_provider') && storage.get('webllm_model')) {
     storage.set('ai_provider', 'webllm');
     resetProvider();
   }
@@ -456,7 +521,10 @@ let currentMap: MapData | null = null;
 function renderTopBar(state: GameState) {
   const me = state.leaderboard?.find(e => e.playerId === myPlayerId);
   const username = me?.name || storage.get('username') || '';
-  $('lord-info').textContent = `${username} · ${state.cityName} Lv${state.lordLevel}`;
+  const pros = state.prosperityNext
+    ? `繁荣 ${state.prosperity}/${state.prosperityNext}`
+    : `繁荣 ${state.prosperity}`;
+  $('lord-info').textContent = `${username} · ${state.cityName} Lv${state.lordLevel} · ${pros}`;
   $('round-info').textContent = `第 ${getRound()} 轮`;
 
   const r = state.resources, c = state.capacity;
@@ -529,6 +597,38 @@ function addObservationCard(round: number, text: string) {
   while (list.children.length > 50) list.removeChild(list.lastChild!);
 }
 
+function addBattleCard(data: { round: number; role: string; won: boolean; myLosses: number; enemyLosses: number; territoryCaptured: boolean; cityCaptured: boolean }) {
+  const list = $('decision-list');
+  const card = document.createElement('div');
+  card.className = `battle-card ${data.won ? 'battle-win' : 'battle-lose'}`;
+  const icon = data.won ? '⚔️✅' : '⚔️❌';
+  const roleText = data.role === 'attacker' ? '进攻' : '防御';
+  const extra = data.cityCaptured ? ' · 🏰 城陷' : data.territoryCaptured ? ' · 📍 夺地' : '';
+  card.innerHTML = `<div class="decision-round">${icon} ${roleText}${data.won ? '胜' : '败'}${extra} · 第 ${data.round} 轮 | ${new Date().toLocaleTimeString('zh-CN')}</div><div class="battle-detail">我方损失 ${data.myLosses} · 敌方损失 ${data.enemyLosses}</div>`;
+  list.prepend(card);
+  while (list.children.length > 50) list.removeChild(list.lastChild!);
+}
+
+function addAlertCard(data: { round: number; level: string; text: string }) {
+  const list = $('decision-list');
+  const card = document.createElement('div');
+  card.className = `alert-card alert-${data.level}`;
+  const icon = data.level === 'error' ? '🚨' : data.level === 'warning' ? '⚠️' : 'ℹ️';
+  card.innerHTML = `<div class="decision-round">${icon} 系统告警 · 第 ${data.round} 轮 | ${new Date().toLocaleTimeString('zh-CN')}</div><div class="alert-text">${escapeHtml(data.text)}</div>`;
+  list.prepend(card);
+  while (list.children.length > 50) list.removeChild(list.lastChild!);
+}
+
+function addLossCard(data: { round: number; attacker: string; location: string; point: string; timestamp: string }) {
+  const list = $('decision-list');
+  const card = document.createElement('div');
+  card.className = 'battle-card battle-lose';
+  const time = new Date(data.timestamp).toLocaleTimeString('zh-CN');
+  card.innerHTML = `<div class="decision-round">🏳️ 领地失守 · 第 ${data.round} 轮 | ${time}</div><div class="battle-detail">${escapeHtml(data.point)} (${data.location}) 被 ${escapeHtml(data.attacker)} 夺走</div>`;
+  list.prepend(card);
+  while (list.children.length > 50) list.removeChild(list.lastChild!);
+}
+
 // 手机 Tab 也需要渲染
 function renderMobileStatus(state: GameState) {
   const r = state.resources;
@@ -554,17 +654,29 @@ function renderMobileStatus(state: GameState) {
 }
 
 function renderMobileSettings() {
+  const curProvider = storage.get('ai_provider') || '无';
+  const curModel = curProvider === 'webllm' ? (storage.get('webllm_model') || '')
+    : (curProvider === 'openai' || curProvider === 'anthropic' || curProvider === 'google') ? (storage.get('cloud_model') || '')
+    : '';
   $('m-settings').innerHTML = `<div class="m-card">
     <h4>Bot 控制</h4>
-    <button class="btn ${isRunning()?'btn-danger':'btn-primary'}" onclick="document.getElementById('bot-toggle').click()">${isRunning()?'暂停机器人':'启动机器人'}</button>
+    <button class="btn ${isRunning()?'btn-danger':'btn-primary'}" id="m-bot-toggle">${isRunning()?'暂停机器人':'启动机器人'}</button>
     <h4 style="margin-top:16px">AI 配置</h4>
-    <div>当前: ${storage.get('ai_provider') || '无'}</div>
+    <div>当前: <b>${curProvider}</b>${curModel ? ` · ${curModel}` : ''}</div>
+    <button class="btn btn-secondary" id="m-ai-config" style="margin-top:8px">重新配置 AI</button>
     <h4 style="margin-top:16px">账号</h4>
     <div>用户: ${storage.get('username') || '?'}</div>
-    <button class="btn btn-secondary" onclick="document.getElementById('logout-btn').click()" style="margin-top:8px">登出</button>
-    <h4 style="margin-top:16px">指令</h4>
-    <div>${getDirectives().map(d => `<span class="directive-tag">${d}</span>`).join('') || '无'}</div>
+    <button class="btn btn-secondary" id="m-logout" style="margin-top:8px">登出</button>
+    <h4 style="margin-top:16px">已下达指令</h4>
+    <div>${getDirectives().map(d => `<span class="directive-tag">${escapeHtml(d)}</span>`).join('') || '<span style="color:var(--text2)">无</span>'}</div>
   </div>`;
+  // 事件绑定（innerHTML 重渲染会丢 listener，所以每次绑）
+  $('m-bot-toggle').addEventListener('click', () => $('bot-toggle').click());
+  $('m-logout').addEventListener('click', () => $('logout-btn').click());
+  $('m-ai-config').addEventListener('click', () => {
+    hide($('app'));
+    show($('setup-overlay'));
+  });
 }
 
 // ===== 对话 =====
@@ -686,8 +798,23 @@ document.querySelectorAll('#tab-bar .tab').forEach(tab => {
     if (target === 'tab-map') {
       $('tab-map').appendChild($('map-panel'));
     }
+    // 切到战报 tab 时，把 #decisions 和 #chat-panel 移过来（共享一份 DOM）
+    if (target === 'tab-log') {
+      $('tab-log').appendChild($('decisions'));
+      $('tab-log').appendChild($('chat-panel'));
+    }
   });
 });
+
+// 回 PC 模式时把 panels 搬回 right-panel（保持单一 DOM 源）
+function restorePcLayout() {
+  if (window.innerWidth > 768) {
+    const rp = $('right-panel');
+    rp.appendChild($('decisions'));
+    rp.appendChild($('chat-panel'));
+  }
+}
+window.addEventListener('resize', restorePcLayout);
 
 // ===== 事件监听 =====
 onEvent((event, data) => {
@@ -705,18 +832,15 @@ onEvent((event, data) => {
   } else if (event === 'decision') {
     const { round, decision } = data as { round: number; decision: Decision };
     addDecisionCard(round, decision);
-    // 手机端也加
-    const mDec = $('m-decisions');
-    if (mDec) {
-      const card = document.createElement('div');
-      card.className = 'decision-card';
-      card.innerHTML = `<div class="decision-round">第 ${round} 轮</div><div class="decision-analysis">${decision.analysis}</div><span class="decision-action action-default">${decision.action}</span>`;
-      mDec.prepend(card);
-      while (mDec.children.length > 30) mDec.removeChild(mDec.lastChild!);
-    }
   } else if (event === 'observation') {
     const { round, text } = data as { round: number; text: string };
     addObservationCard(round, text);
+  } else if (event === 'battle') {
+    addBattleCard(data as { round: number; role: string; won: boolean; myLosses: number; enemyLosses: number; territoryCaptured: boolean; cityCaptured: boolean });
+  } else if (event === 'loss') {
+    addLossCard(data as { round: number; attacker: string; location: string; point: string; timestamp: string });
+  } else if (event === 'alert') {
+    addAlertCard(data as { round: number; level: string; text: string });
   } else if (event === 'botStatus') {
     const running = data as boolean;
     const el = $('bot-status');
