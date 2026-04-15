@@ -203,14 +203,15 @@ export function checkEmptyArmy(state: GameState): Decision | null {
   if (!emptyArmy) return null;
   const assignedIds = new Set(state.armies.flatMap(a => a.generals.map(g => g.id)));
   const unassigned = state.generals.filter(g => !assignedIds.has(g.id));
-  // 开局服务器可能只送 2 个将领；硬卡 3 会死锁。有几个分几个，至少 1 个就上。
-  if (unassigned.length < 1) return null;
-  const toAssign = unassigned.slice(0, Math.min(3, unassigned.length));
+  // 服务器要求 exactly 3。新号开局会送满 3 个，若少了说明历史遗留状态（旧 bug）。
+  // 不够 3 个时尝试抽卡补；都不行就 wait（避免死循环刷 400）。
+  if (unassigned.length < 3) return null;
+  const toAssign = unassigned.slice(0, 3);
   return {
-    analysis: `分配 ${toAssign.length} 将领到军队${emptyArmy.raw?.slot}`,
+    analysis: `分配将领到军队${emptyArmy.raw?.slot}`,
     action: 'assign_generals',
     params: { assignments: toAssign.map(g => ({ generalId: g.id, troopType: g.troopType || 'infantry' })), armySlot: emptyArmy.raw?.slot },
-    reasoning: toAssign.length < 3 ? `开局只有 ${toAssign.length} 个将领，先启动循环` : '双军队',
+    reasoning: '双军队',
   };
 }
 
